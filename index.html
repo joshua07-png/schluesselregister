@@ -378,6 +378,7 @@
 const SUPABASE_URL = 'https://cgnpznsrsmerbgscsexs.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_tV0kizs2BMhLomiHk9iJzQ_1Y2jy83A';
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const APP_URL = 'https://joshua07-png.github.io/schluesselregister/';
 
 /* ---------------- data layer ---------------- */
 async function fetchKeys(){
@@ -598,13 +599,13 @@ function showQrTag(k){
       <div class="idm">${k.id}</div>
     </div>
     <p style="font-size:12px;color:var(--slate);margin-top:12px;">
-      Tag ausdrucken, laminieren und am Schlüssel befestigen. Beim Scannen mit einer beliebigen QR-App wird die ID <b>${k.id}</b> angezeigt — diese im Tab „Scannen" eingeben, oder die App als geteilten Link veröffentlichen, damit der QR-Code direkt dorthin öffnet.
+      Tag ausdrucken, laminieren und am Schlüssel befestigen. Scannen mit einer beliebigen Handykamera öffnet direkt das Eintragsformular für <b>${k.id}</b> — kein Login oder App-Zusatz nötig.
     </p>
     <button class="btn btn-brass" onclick="printTag('${k.id}','${escapeHtml(k.label).replace(/'/g,"\\'")}')">Drucken</button>
   `;
   document.getElementById('overlay').classList.add('active');
   new QRCode(document.getElementById('qrCanvasHolder'), {
-    text: k.id, width:130, height:130, colorDark:'#000000', colorLight:'#ffffff'
+    text: `${APP_URL}?key=${k.id}`, width:130, height:130, colorDark:'#000000', colorLight:'#ffffff'
   });
 }
 
@@ -618,7 +619,7 @@ function printTag(id, label){
     </div>
   `;
   new QRCode(document.getElementById('printQrHolder'), {
-    text: id, width:150, height:150, colorDark:'#000000', colorLight:'#ffffff'
+    text: `${APP_URL}?key=${id}`, width:150, height:150, colorDark:'#000000', colorLight:'#ffffff'
   });
   setTimeout(()=>{
     try{ window.print(); }
