@@ -614,12 +614,39 @@ function showQrTag(k){
     <p style="font-size:12px;color:var(--slate);margin-top:12px;">
       Der QR-Code wird beim Drucken automatisch auf exakt <b>1,6 × 1,6 cm</b> skaliert — bereit zum Ausschneiden und Laminieren. Wichtig: Im Druckdialog die Skalierung auf <b>„100 %" / „Tatsächliche Größe"</b> stellen (nicht „An Seite anpassen"), sonst stimmt das Maß nicht. Scannen mit einer beliebigen Handykamera öffnet direkt das Eintragsformular für <b>${k.id}</b>.
     </p>
-    <button class="btn btn-brass" onclick="printTag('${k.id}','${escapeHtml(k.label).replace(/'/g,"\\'")}')">Drucken</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-brass" onclick="printTag('${k.id}','${escapeHtml(k.label).replace(/'/g,"\\'")}')">Drucken</button>
+      <button class="btn btn-ghost" onclick="downloadQrPng('${k.id}')">PNG herunterladen</button>
+    </div>
+    <p style="font-size:11.5px;color:var(--slate);margin-top:10px;">
+      Die PNG-Datei ist hochauflösend (quadratisch, ohne Beschriftung). In der Etiketten-App auf dem Handy einfach die Druckgröße manuell auf <b>1,6 × 1,6 cm</b> stellen.
+    </p>
   `;
   document.getElementById('overlay').classList.add('active');
   new QRCode(document.getElementById('qrCanvasHolder'), {
     text: `${APP_URL}?key=${k.id}`, width:130, height:130, colorDark:'#000000', colorLight:'#ffffff'
   });
+}
+
+function downloadQrPng(id){
+  const gen = document.getElementById('printQrGenerator');
+  gen.innerHTML = '';
+  new QRCode(gen, {
+    text: `${APP_URL}?key=${id}`, width:600, height:600, colorDark:'#000000', colorLight:'#ffffff'
+  });
+  setTimeout(()=>{
+    const canvas = gen.querySelector('canvas');
+    if(!canvas){ toast('PNG konnte nicht erzeugt werden.'); return; }
+    const dataUrl = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `${id}-qr.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    gen.innerHTML = '';
+    toast(`${id}-qr.png heruntergeladen.`);
+  }, 150);
 }
 
 function printTag(id, label){
