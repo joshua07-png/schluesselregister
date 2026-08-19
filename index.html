@@ -268,10 +268,11 @@
     #printArea{position:absolute;top:0;left:0;right:0;display:flex;justify-content:center;}
     .qr-print-frame{
       width:1.6cm !important; height:1.6cm !important;
-      display:block !important;
+      display:block !important; overflow:hidden;
     }
-    .qr-print-frame img, .qr-print-frame canvas{
-      width:1.6cm !important; height:1.6cm !important; display:block;
+    .qr-print-frame img{
+      width:1.6cm !important; height:1.6cm !important;
+      display:block !important; max-width:none !important;
     }
     .qr-print-wrap{ border:none !important; padding:0 !important; gap:2mm !important; }
     .qr-print-wrap .idm{ font-size:7pt !important; }
@@ -280,6 +281,7 @@
 </style>
 </head>
 <body>
+<div id="printQrGenerator" style="position:absolute;left:-9999px;top:-9999px;"></div>
 
 <header class="app">
   <div class="brand-eyebrow">
@@ -621,21 +623,40 @@ function showQrTag(k){
 }
 
 function printTag(id, label){
-  const area = document.getElementById('printArea');
-  area.innerHTML = `
-    <div class="qr-tag qr-print-wrap" style="width:auto;">
-      <div class="qr-print-frame" id="printQrHolder"></div>
-      <div class="lbl">${label}</div>
-      <div class="idm">${id}</div>
-    </div>
-  `;
-  new QRCode(document.getElementById('printQrHolder'), {
-    text: `${APP_URL}?key=${id}`, width:240, height:240, colorDark:'#000000', colorLight:'#ffffff'
+  // 1cm at 96 CSS-reference px/inch = 37.795px -> used for the img's HTML attributes,
+  // which some print engines (notably Safari on macOS) honor more reliably than CSS alone.
+  const PX_PER_CM = 37.7952755906;
+  const sizePx = Math.round(1.6 * PX_PER_CM);
+
+  // Generate the QR off-screen at high internal resolution for crisp small-format printing
+  const gen = document.getElementById('printQrGenerator');
+  gen.innerHTML = '';
+  new QRCode(gen, {
+    text: `${APP_URL}?key=${id}`, width:480, height:480, colorDark:'#000000', colorLight:'#ffffff'
   });
+
   setTimeout(()=>{
-    try{ window.print(); }
-    catch(e){ toast('Druckdialog blockiert — bitte Strg/Cmd+P verwenden.'); }
-  }, 200);
+    const canvas = gen.querySelector('canvas');
+    const dataUrl = canvas ? canvas.toDataURL('image/png') : (gen.querySelector('img') || {}).src;
+
+    const area = document.getElementById('printArea');
+    area.innerHTML = `
+      <div class="qr-tag qr-print-wrap" style="width:auto;">
+        <div class="qr-print-frame">
+          <img src="${dataUrl}" width="${sizePx}" height="${sizePx}"
+               style="width:1.6cm;height:1.6cm;" alt="QR ${id}">
+        </div>
+        <div class="lbl">${label}</div>
+        <div class="idm">${id}</div>
+      </div>
+    `;
+    gen.innerHTML = '';
+
+    setTimeout(()=>{
+      try{ window.print(); }
+      catch(e){ toast('Druckdialog blockiert — bitte Strg/Cmd+P verwenden.'); }
+    }, 150);
+  }, 150);
 }
 
 /* ---------------- scan view ---------------- */
