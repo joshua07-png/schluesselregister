@@ -262,9 +262,20 @@
   }
 
   @media print{
+    @page{ size:auto; margin:8mm; }
     body *{visibility:hidden;}
     #printArea, #printArea *{visibility:visible;}
-    #printArea{position:absolute;top:30px;left:0;right:0;display:flex;justify-content:center;}
+    #printArea{position:absolute;top:0;left:0;right:0;display:flex;justify-content:center;}
+    .qr-print-frame{
+      width:2cm !important; height:2cm !important;
+      display:block !important;
+    }
+    .qr-print-frame img, .qr-print-frame canvas{
+      width:2cm !important; height:2cm !important; display:block;
+    }
+    .qr-print-wrap{ border:none !important; padding:0 !important; gap:2mm !important; }
+    .qr-print-wrap .idm{ font-size:7pt !important; }
+    .qr-print-wrap .lbl{ display:none !important; }
   }
 </style>
 </head>
@@ -599,7 +610,7 @@ function showQrTag(k){
       <div class="idm">${k.id}</div>
     </div>
     <p style="font-size:12px;color:var(--slate);margin-top:12px;">
-      Tag ausdrucken, laminieren und am Schlüssel befestigen. Scannen mit einer beliebigen Handykamera öffnet direkt das Eintragsformular für <b>${k.id}</b> — kein Login oder App-Zusatz nötig.
+      Der QR-Code wird beim Drucken automatisch auf exakt <b>2 × 2 cm</b> skaliert — bereit zum Ausschneiden und Laminieren. Wichtig: Im Druckdialog die Skalierung auf <b>„100 %" / „Tatsächliche Größe"</b> stellen (nicht „An Seite anpassen"), sonst stimmt das Maß nicht. Scannen mit einer beliebigen Handykamera öffnet direkt das Eintragsformular für <b>${k.id}</b>.
     </p>
     <button class="btn btn-brass" onclick="printTag('${k.id}','${escapeHtml(k.label).replace(/'/g,"\\'")}')">Drucken</button>
   `;
@@ -612,14 +623,14 @@ function showQrTag(k){
 function printTag(id, label){
   const area = document.getElementById('printArea');
   area.innerHTML = `
-    <div class="qr-tag" style="width:260px;">
-      <div id="printQrHolder"></div>
+    <div class="qr-tag qr-print-wrap" style="width:auto;">
+      <div class="qr-print-frame" id="printQrHolder"></div>
       <div class="lbl">${label}</div>
       <div class="idm">${id}</div>
     </div>
   `;
   new QRCode(document.getElementById('printQrHolder'), {
-    text: `${APP_URL}?key=${id}`, width:150, height:150, colorDark:'#000000', colorLight:'#ffffff'
+    text: `${APP_URL}?key=${id}`, width:240, height:240, colorDark:'#000000', colorLight:'#ffffff'
   });
   setTimeout(()=>{
     try{ window.print(); }
