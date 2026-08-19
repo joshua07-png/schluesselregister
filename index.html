@@ -616,16 +616,50 @@ function showQrTag(k){
     </p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-brass" onclick="printTag('${k.id}','${escapeHtml(k.label).replace(/'/g,"\\'")}')">Drucken</button>
+      <button class="btn btn-ghost" onclick="openQrImage('${k.id}')">In Fotos speichern</button>
       <button class="btn btn-ghost" onclick="downloadQrPng('${k.id}')">PNG herunterladen</button>
     </div>
     <p style="font-size:11.5px;color:var(--slate);margin-top:10px;">
-      Die PNG-Datei ist hochauflösend (quadratisch, ohne Beschriftung). In der Etiketten-App auf dem Handy einfach die Druckgröße manuell auf <b>1,6 × 1,6 cm</b> stellen.
+      <b>iPhone:</b> „In Fotos speichern" tippen → Bild öffnet sich → mit dem Finger lange auf das Bild drücken → „Zu Fotos hinzufügen". Landet direkt in der Galerie.<br>
+      <b>Etiketten-App/PNG:</b> „PNG herunterladen" — hochauflösend, ohne Beschriftung. Druckgröße dort manuell auf 1,6 × 1,6 cm stellen.
     </p>
   `;
   document.getElementById('overlay').classList.add('active');
   new QRCode(document.getElementById('qrCanvasHolder'), {
     text: `${APP_URL}?key=${k.id}`, width:130, height:130, colorDark:'#000000', colorLight:'#ffffff'
   });
+}
+
+function openQrImage(id){
+  // open a blank tab synchronously (within the click handler) so mobile
+  // popup blockers don't stop it, then fill it in once the QR is ready
+  const w = window.open('', '_blank');
+  const gen = document.getElementById('printQrGenerator');
+  gen.innerHTML = '';
+  new QRCode(gen, {
+    text: `${APP_URL}?key=${id}`, width:900, height:900, colorDark:'#000000', colorLight:'#ffffff'
+  });
+  setTimeout(()=>{
+    const canvas = gen.querySelector('canvas');
+    if(!canvas){ toast('Bild konnte nicht erzeugt werden.'); if(w) w.close(); return; }
+    const dataUrl = canvas.toDataURL('image/png');
+    gen.innerHTML = '';
+    if(!w){ toast('Popup blockiert — bitte Popups für diese Seite erlauben.'); return; }
+    w.document.write(`
+      <!DOCTYPE html><html><head><title>${id} QR-Code</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        body{margin:0;background:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;}
+        img{max-width:90vw;max-height:75vh;background:#fff;padding:16px;border-radius:12px;}
+        p{color:#ccc;font-size:14px;text-align:center;padding:0 24px;}
+      </style></head>
+      <body>
+        <img src="${dataUrl}" alt="QR ${id}">
+        <p>Zum Speichern in Fotos: Finger lange auf das Bild halten → „Zu Fotos hinzufügen"</p>
+      </body></html>
+    `);
+    w.document.close();
+  }, 150);
 }
 
 function downloadQrPng(id){
