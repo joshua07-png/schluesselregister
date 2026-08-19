@@ -267,11 +267,11 @@
     #printArea, #printArea *{visibility:visible;}
     #printArea{position:absolute;top:0;left:0;right:0;display:flex;justify-content:center;}
     .qr-print-frame{
-      width:2cm !important; height:2cm !important;
+      width:1.6cm !important; height:1.6cm !important;
       display:block !important;
     }
     .qr-print-frame img, .qr-print-frame canvas{
-      width:2cm !important; height:2cm !important; display:block;
+      width:1.6cm !important; height:1.6cm !important; display:block;
     }
     .qr-print-wrap{ border:none !important; padding:0 !important; gap:2mm !important; }
     .qr-print-wrap .idm{ font-size:7pt !important; }
@@ -610,7 +610,7 @@ function showQrTag(k){
       <div class="idm">${k.id}</div>
     </div>
     <p style="font-size:12px;color:var(--slate);margin-top:12px;">
-      Der QR-Code wird beim Drucken automatisch auf exakt <b>2 × 2 cm</b> skaliert — bereit zum Ausschneiden und Laminieren. Wichtig: Im Druckdialog die Skalierung auf <b>„100 %" / „Tatsächliche Größe"</b> stellen (nicht „An Seite anpassen"), sonst stimmt das Maß nicht. Scannen mit einer beliebigen Handykamera öffnet direkt das Eintragsformular für <b>${k.id}</b>.
+      Der QR-Code wird beim Drucken automatisch auf exakt <b>1,6 × 1,6 cm</b> skaliert — bereit zum Ausschneiden und Laminieren. Wichtig: Im Druckdialog die Skalierung auf <b>„100 %" / „Tatsächliche Größe"</b> stellen (nicht „An Seite anpassen"), sonst stimmt das Maß nicht. Scannen mit einer beliebigen Handykamera öffnet direkt das Eintragsformular für <b>${k.id}</b>.
     </p>
     <button class="btn btn-brass" onclick="printTag('${k.id}','${escapeHtml(k.label).replace(/'/g,"\\'")}')">Drucken</button>
   `;
