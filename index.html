@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Maven+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   :root{
     /* Hauptfarbe 60% */
@@ -373,28 +374,51 @@
 <div class="toast" id="toast"></div>
 
 <script>
-/* ---------------- storage helpers ---------------- */
-const REG_KEY = 'keys-registry';
-async function getRegistry(){
-  try{
-    const r = await window.storage.get(REG_KEY, true);
-    return r ? JSON.parse(r.value) : [];
-  }catch(e){ return []; }
+/* ---------------- supabase setup ---------------- */
+const SUPABASE_URL = 'https://cgnpznsrsmerbgscsexs.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_tV0kizs2BMhLomiHk9iJzQ_1Y2jy83A';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/* ---------------- data layer ---------------- */
+async function fetchKeys(){
+  const { data, error } = await db.from('keys').select('*').order('created_at', { ascending:true });
+  if(error){ toast('Fehler beim Laden: ' + error.message); return []; }
+  return data || [];
 }
-async function saveRegistry(list){
-  try{ await window.storage.set(REG_KEY, JSON.stringify(list), true); }
-  catch(e){ toast('Fehler beim Speichern des Bestands.'); }
+async function fetchHistory(id){
+  const { data, error } = await db.from('key_history').select('*').eq('key_id', id).order('timestamp', { ascending:true });
+  if(error){ toast('Fehler beim Laden des Protokolls.'); return []; }
+  return data || [];
 }
-function logKey(id){ return 'key-log:' + id; }
-async function getLog(id){
-  try{
-    const r = await window.storage.get(logKey(id), true);
-    return r ? JSON.parse(r.value) : { current: null, history: [] };
-  }catch(e){ return { current: null, history: [] }; }
+async function insertKey(id, label, location){
+  const { error } = await db.from('keys').insert({ id, label, location, status:'available' });
+  if(error){ toast('Fehler beim Anlegen: ' + error.message); return false; }
+  return true;
 }
-async function saveLog(id, log){
-  try{ await window.storage.set(logKey(id), JSON.stringify(log), true); }
-  catch(e){ toast('Fehler beim Speichern des Protokolls.'); }
+async function deleteKeyDB(id){
+  const { error } = await db.from('keys').delete().eq('id', id);
+  if(error){ toast('Fehler beim Entfernen: ' + error.message); return false; }
+  return true;
+}
+async function takeKeyDB(id, holder, location, reason){
+  const now = new Date().toISOString();
+  const { error: e1 } = await db.from('keys').update({
+    status:'out', holder, cur_location:location, reason, since:now
+  }).eq('id', id);
+  if(e1){ toast('Fehler: ' + e1.message); return false; }
+  const { error: e2 } = await db.from('key_history').insert({ key_id:id, action:'take', holder, location, reason, timestamp:now });
+  if(e2){ toast('Fehler im Protokoll: ' + e2.message); }
+  return true;
+}
+async function returnKeyDB(id, holder, note){
+  const now = new Date().toISOString();
+  const { error: e1 } = await db.from('keys').update({
+    status:'available', holder:null, cur_location:null, reason:null, since:null
+  }).eq('id', id);
+  if(e1){ toast('Fehler: ' + e1.message); return false; }
+  const { error: e2 } = await db.from('key_history').insert({ key_id:id, action:'return', holder, location: note || 'zurückgegeben', reason:'', timestamp:now });
+  if(e2){ toast('Fehler im Protokoll: ' + e2.message); }
+  return true;
 }
 
 /* ---------------- utilities ---------------- */
@@ -439,19 +463,17 @@ async function renderDashboard(){
   const grid = document.getElementById('dash-grid');
   const sub = document.getElementById('dash-sub');
   grid.innerHTML = '<div class="empty">Lade Bestand…</div>';
-  const registry = await getRegistry();
+  const registry = await fetchKeys();
   if(registry.length===0){
     sub.textContent = 'Noch keine Schlüssel angelegt.';
     grid.innerHTML = '<div class="empty">Noch keine Schlüssel im Register.<br>Unter „Schlüssel verwalten" den ersten Schlüssel anlegen.</div>';
     return;
   }
-  const logs = await Promise.all(registry.map(k=>getLog(k.id)));
-  const outCount = logs.filter(l=>l.current && l.current.status==='out').length;
+  const outCount = registry.filter(k=>k.status==='out').length;
   sub.textContent = `${registry.length} Schlüssel · ${outCount} aktuell entnommen`;
   grid.innerHTML = '';
-  registry.forEach((k, i)=>{
-    const log = logs[i];
-    const isOut = log.current && log.current.status==='out';
+  registry.forEach(k=>{
+    const isOut = k.status==='out';
     const card = document.createElement('div');
     card.className='tag-card';
     card.innerHTML = `
@@ -459,7 +481,7 @@ async function renderDashboard(){
       <div class="tag-label">${escapeHtml(k.label)}</div>
       <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Im Schlüsselkasten'}</span>
       <div class="tag-meta">
-        ${isOut ? `<b>${escapeHtml(log.current.holder)}</b> · seit ${fmtDate(log.current.since)}<br>${escapeHtml(log.current.location)}${log.current.reason ? ' · '+escapeHtml(log.current.reason):''}`
+        ${isOut ? `<b>${escapeHtml(k.holder)}</b> · seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason ? ' · '+escapeHtml(k.reason):''}`
                 : `Standard: ${escapeHtml(k.location||'—')}`}
       </div>
     `;
@@ -470,11 +492,11 @@ async function renderDashboard(){
 
 /* ---------------- detail modal ---------------- */
 async function openDetail(id){
-  const registry = await getRegistry();
+  const registry = await fetchKeys();
   const k = registry.find(x=>x.id===id);
   if(!k) return;
-  const log = await getLog(id);
-  const isOut = log.current && log.current.status==='out';
+  const history = await fetchHistory(id);
+  const isOut = k.status==='out';
   const modal = document.getElementById('modal-body');
   modal.innerHTML = `
     <button class="modal-close" onclick="closeModal()">✕</button>
@@ -485,15 +507,15 @@ async function openDetail(id){
       </div>
       <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Verfügbar'}</span>
     </div>
-    ${isOut ? `<div class="tag-meta"><b>${escapeHtml(log.current.holder)}</b> hat den Schlüssel seit ${fmtDate(log.current.since)}<br>Standort: ${escapeHtml(log.current.location)}${log.current.reason?'<br>Grund: '+escapeHtml(log.current.reason):''}</div>`
+    ${isOut ? `<div class="tag-meta"><b>${escapeHtml(k.holder)}</b> hat den Schlüssel seit ${fmtDate(k.since)}<br>Standort: ${escapeHtml(k.cur_location)}${k.reason?'<br>Grund: '+escapeHtml(k.reason):''}</div>`
              : `<div class="tag-meta">Standardstandort: ${escapeHtml(k.location||'—')}</div>`}
     <div style="margin-top:16px;display:flex;gap:8px;">
       <button class="btn btn-brass" onclick="goScanFor('${k.id}')">${isOut?'Zurückgeben / bearbeiten':'Entnehmen'}</button>
       <button class="btn btn-ghost" onclick="closeModal()">Schließen</button>
     </div>
     <div class="history-list">
-      ${log.history.length===0 ? '<div class="tag-meta" style="padding:14px 0;">Noch keine Einträge.</div>' :
-        log.history.slice().reverse().map(h=>`
+      ${history.length===0 ? '<div class="tag-meta" style="padding:14px 0;">Noch keine Einträge.</div>' :
+        history.slice().reverse().map(h=>`
           <div class="history-item">
             <div class="when mono">${fmtDate(h.timestamp)}</div>
             <div class="what">
@@ -519,10 +541,10 @@ document.getElementById('btn-add-key').addEventListener('click', async ()=>{
   const label = document.getElementById('in-label').value.trim();
   const loc = document.getElementById('in-loc').value.trim();
   if(!label){ toast('Bitte eine Bezeichnung eingeben.'); return; }
-  const registry = await getRegistry();
+  const registry = await fetchKeys();
   const id = nextId(registry);
-  registry.push({ id, label, location: loc, createdAt: new Date().toISOString() });
-  await saveRegistry(registry);
+  const ok = await insertKey(id, label, loc);
+  if(!ok) return;
   document.getElementById('in-label').value='';
   document.getElementById('in-loc').value='';
   toast(`Schlüssel ${id} angelegt.`);
@@ -532,7 +554,7 @@ document.getElementById('btn-add-key').addEventListener('click', async ()=>{
 async function renderManage(){
   const list = document.getElementById('manage-list');
   list.innerHTML = '<div class="empty">Lade…</div>';
-  const registry = await getRegistry();
+  const registry = await fetchKeys();
   if(registry.length===0){
     list.innerHTML = '<div class="empty">Noch keine Schlüssel angelegt.</div>';
     return;
@@ -558,10 +580,9 @@ async function renderManage(){
 }
 
 async function deleteKey(id){
-  if(!confirm(`Schlüssel ${id} wirklich entfernen? Das Protokoll bleibt gespeichert, erscheint aber nicht mehr in der Übersicht.`)) return;
-  let registry = await getRegistry();
-  registry = registry.filter(k=>k.id!==id);
-  await saveRegistry(registry);
+  if(!confirm(`Schlüssel ${id} wirklich entfernen? Das Protokoll wird mit gelöscht.`)) return;
+  const ok = await deleteKeyDB(id);
+  if(!ok) return;
   toast('Schlüssel entfernt.');
   renderManage();
 }
@@ -616,15 +637,14 @@ document.getElementById('in-scan-id').addEventListener('keydown', e=>{
 });
 
 async function loadScanResult(id){
-  const registry = await getRegistry();
+  const registry = await fetchKeys();
   const k = registry.find(x=>x.id===id);
   const box = document.getElementById('scan-result');
   if(!k){
     box.innerHTML = `<div class="empty">Kein Schlüssel mit ID <b class="mono">${escapeHtml(id)}</b> gefunden.</div>`;
     return;
   }
-  const log = await getLog(id);
-  const isOut = log.current && log.current.status==='out';
+  const isOut = k.status==='out';
   box.innerHTML = `
     <div class="card">
       <div class="key-detail-head">
@@ -635,7 +655,7 @@ async function loadScanResult(id){
         <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Verfügbar'}</span>
       </div>
       ${isOut ? `
-        <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(log.current.holder)}</b>, seit ${fmtDate(log.current.since)}<br>${escapeHtml(log.current.location)}${log.current.reason?' · '+escapeHtml(log.current.reason):''}</div>
+        <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(k.holder)}</b>, seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason?' · '+escapeHtml(k.reason):''}</div>
         <div class="field"><label for="ret-note">Anmerkung zur Rückgabe (optional)</label><input id="ret-note" type="text" placeholder="z. B. wieder im Kasten, Fach 3"></div>
         <button class="btn btn-brass" id="btn-return">Schlüssel zurückgeben</button>
       ` : `
@@ -649,10 +669,8 @@ async function loadScanResult(id){
   if(isOut){
     document.getElementById('btn-return').addEventListener('click', async ()=>{
       const note = document.getElementById('ret-note').value.trim();
-      const entry = { action:'return', holder: log.current.holder, location: note || 'zurückgegeben', reason:'', timestamp:new Date().toISOString() };
-      log.history.push(entry);
-      log.current = null;
-      await saveLog(id, log);
+      const ok = await returnKeyDB(id, k.holder, note);
+      if(!ok) return;
       toast(`Schlüssel ${id} zurückgegeben.`);
       loadScanResult(id);
     });
@@ -662,10 +680,8 @@ async function loadScanResult(id){
       const loc = document.getElementById('take-loc').value.trim();
       const reason = document.getElementById('take-reason').value.trim();
       if(!holder || !loc){ toast('Bitte Name und Standort angeben.'); return; }
-      const now = new Date().toISOString();
-      log.current = { status:'out', holder, location:loc, reason, since:now };
-      log.history.push({ action:'take', holder, location:loc, reason, timestamp:now });
-      await saveLog(id, log);
+      const ok = await takeKeyDB(id, holder, loc, reason);
+      if(!ok) return;
       toast(`Schlüssel ${id} auf ${holder} eingetragen.`);
       loadScanResult(id);
     });
