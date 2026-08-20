@@ -298,9 +298,12 @@
 
   @media print{
     @page{ size:auto; margin:8mm; }
-    body *{visibility:hidden;}
-    #printArea, #printArea *{visibility:visible;}
-    #printArea{position:absolute;top:0;left:0;right:0;display:flex;justify-content:center;}
+    html, body{ height:auto !important; margin:0 !important; padding:0 !important; overflow:visible !important; }
+    /* Alles ausblenden, was nicht der Druckbereich ist -- display:none statt nur
+       visibility:hidden, damit die Seite wirklich nur eine Druckseite hoch ist
+       und der Drucker keine zweite, leere Seite anhaengt. */
+    body > *{ display:none !important; }
+    body > #printArea{ display:flex !important; justify-content:center; position:static !important; }
     .qr-print-frame{
       width:1.6cm !important; height:1.6cm !important;
       display:block !important; overflow:hidden;
