@@ -678,9 +678,9 @@ async function renderManage(){
         <div class="id mono">${k.id}</div>
       </div>
       <div class="actions">
-        ${currentUser
+        ${isAdmin
           ? `<button class="btn btn-ghost" data-act="edit">Bearbeiten</button>`
-          : `<button class="btn btn-ghost" data-act="edit-locked" title="Login nötig">🔒 Bearbeiten</button>`}
+          : `<button class="btn btn-ghost" data-act="edit-locked" title="Nur Admin kann Name/Standort bearbeiten">🔒 Bearbeiten</button>`}
         <button class="btn btn-ghost" data-act="qr">QR-Tag</button>
         ${isAdmin
           ? `<button class="btn btn-danger" data-act="del">Entfernen</button>`
@@ -691,7 +691,10 @@ async function renderManage(){
     const editBtn = row.querySelector('[data-act="edit"]');
     if(editBtn) editBtn.addEventListener('click', ()=>showEditKey(k));
     const editLockedBtn = row.querySelector('[data-act="edit-locked"]');
-    if(editLockedBtn) editLockedBtn.addEventListener('click', ()=>{ toast('Bitte zuerst anmelden.'); showAdminLogin(); });
+    if(editLockedBtn) editLockedBtn.addEventListener('click', ()=>{
+      toast(currentUser ? 'Nur Admins können Name/Standort bearbeiten.' : 'Bitte zuerst anmelden.');
+      if(!currentUser) showAdminLogin();
+    });
     const delBtn = row.querySelector('[data-act="del"]');
     if(delBtn) delBtn.addEventListener('click', ()=>deleteKey(k.id));
     const lockedBtn = row.querySelector('[data-act="del-locked"]');
@@ -713,7 +716,11 @@ async function deleteKey(id){
 }
 
 function showEditKey(k){
-  if(!currentUser){ toast('Bitte zuerst anmelden.'); showAdminLogin(); return; }
+  if(!isAdmin){
+    toast(currentUser ? 'Nur Admins können Name/Standort bearbeiten.' : 'Bitte zuerst anmelden.');
+    if(!currentUser) showAdminLogin();
+    return;
+  }
   const modal = document.getElementById('modal-body');
   modal.innerHTML = `
     <button class="modal-close" onclick="closeModal()">✕</button>
