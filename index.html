@@ -327,7 +327,7 @@
       <div>
         <span class="eyebrow">Verwaltung | Jürgen Rossegger</span>
         <h2>Neuen Schlüssel anlegen</h2>
-        <p>Jeder Schlüssel erhält eine eindeutige ID und einen QR-Code zum Anhängen.</p>
+        <p>Login erforderlich. Jeder Schlüssel erhält eine eindeutige ID und einen QR-Code zum Anhängen.</p>
       </div>
     </div>
     <div class="card">
@@ -361,7 +361,7 @@
         <div>
           <span class="eyebrow">Scannen | Jürgen Rossegger</span>
           <h2>Schlüssel eintragen</h2>
-          <p>Schlüssel-ID eingeben — oder den QR-Code am Schlüssel direkt mit der Handykamera scannen, das öffnet dieses Formular automatisch.</p>
+          <p>Login erforderlich. Schlüssel-ID eingeben — oder den QR-Code am Schlüssel direkt mit der Handykamera scannen, das öffnet dieses Formular automatisch.</p>
         </div>
       </div>
 
@@ -551,6 +551,7 @@ function goScanFor(id){
 
 /* ---------------- manage view ---------------- */
 document.getElementById('btn-add-key').addEventListener('click', async ()=>{
+  if(!currentUser){ toast('Bitte zuerst anmelden.'); showAdminLogin(); return; }
   const label = document.getElementById('in-label').value.trim();
   const loc = document.getElementById('in-loc').value.trim();
   if(!label){ toast('Bitte eine Bezeichnung eingeben.'); return; }
@@ -564,15 +565,28 @@ document.getElementById('btn-add-key').addEventListener('click', async ()=>{
   renderManage();
 });
 
-/* ---------------- admin auth ---------------- */
+/* ---------------- auth (members + admins) ---------------- */
 let currentUser = null;
+let isAdmin = false;
+
+function displayName(user){
+  return (user && user.user_metadata && user.user_metadata.full_name) || (user ? user.email : '');
+}
+
+async function refreshAdminFlag(){
+  if(!currentUser){ isAdmin = false; return; }
+  const { data, error } = await db.from('admins').select('email').eq('email', currentUser.email).maybeSingle();
+  isAdmin = !error && !!data;
+}
 
 async function initAuth(){
   const { data: { session } } = await db.auth.getSession();
   currentUser = session ? session.user : null;
+  await refreshAdminFlag();
   renderAdminArea();
-  db.auth.onAuthStateChange((_event, session)=>{
+  db.auth.onAuthStateChange(async (_event, session)=>{
     currentUser = session ? session.user : null;
+    await refreshAdminFlag();
     renderAdminArea();
     renderManage();
   });
@@ -581,15 +595,16 @@ async function initAuth(){
 function renderAdminArea(){
   const area = document.getElementById('admin-area');
   if(currentUser){
+    const role = isAdmin ? 'Admin' : 'Mitglied';
     area.innerHTML = `
-      <div class="admin-chip">Admin: <b>${escapeHtml(currentUser.email)}</b> <button id="btn-admin-logout">Abmelden</button></div>
+      <div class="admin-chip">${role}: <b>${escapeHtml(displayName(currentUser))}</b> <button id="btn-admin-logout">Abmelden</button></div>
     `;
     document.getElementById('btn-admin-logout').addEventListener('click', async ()=>{
       await db.auth.signOut();
       toast('Abgemeldet.');
     });
   } else {
-    area.innerHTML = `<button id="btn-admin-login">Admin-Login</button>`;
+    area.innerHTML = `<button id="btn-admin-login">Anmelden</button>`;
     document.getElementById('btn-admin-login').addEventListener('click', showAdminLogin);
   }
 }
@@ -598,9 +613,9 @@ function showAdminLogin(){
   const modal = document.getElementById('modal-body');
   modal.innerHTML = `
     <button class="modal-close" onclick="closeModal()">✕</button>
-    <h3 class="display" style="margin-top:0;">Admin-Login</h3>
-    <p style="font-size:12.5px;color:var(--slate);margin-top:-6px;">Nur Admins können Schlüssel dauerhaft entfernen.</p>
-    <div class="field"><label for="admin-email">E-Mail</label><input id="admin-email" type="email" placeholder="admin@rossegger-gmbh.de"></div>
+    <h3 class="display" style="margin-top:0;">Anmelden</h3>
+    <p style="font-size:12.5px;color:var(--slate);margin-top:-6px;">Zum Eintragen von Schlüsseln ist ein Mitarbeiter-Login nötig. Admins können zusätzlich Schlüssel entfernen.</p>
+    <div class="field"><label for="admin-email">E-Mail</label><input id="admin-email" type="email" placeholder="name@rossegger-gmbh.de"></div>
     <div class="field"><label for="admin-pass">Passwort</label><input id="admin-pass" type="password" placeholder="••••••••"></div>
     <button class="btn btn-brass" id="btn-admin-submit">Anmelden</button>
     <div id="admin-login-error" style="color:#b1492c;font-size:12.5px;margin-top:10px;"></div>
@@ -614,8 +629,12 @@ function showAdminLogin(){
     if(!email || !pass){ errBox.textContent = 'Bitte E-Mail und Passwort eingeben.'; return; }
     const { error } = await db.auth.signInWithPassword({ email, password: pass });
     if(error){ errBox.textContent = 'Anmeldung fehlgeschlagen: ' + error.message; return; }
-    toast('Als Admin angemeldet.');
+    toast('Angemeldet.');
     closeModal();
+    if(document.getElementById('view-scan').classList.contains('active')){
+      const idField = document.getElementById('in-scan-id');
+      if(idField.value.trim()) loadScanResult(idField.value.trim().toUpperCase());
+    }
   });
 }
 
@@ -638,7 +657,7 @@ async function renderManage(){
       </div>
       <div class="actions">
         <button class="btn btn-ghost" data-act="qr">QR-Tag</button>
-        ${currentUser
+        ${isAdmin
           ? `<button class="btn btn-danger" data-act="del">Entfernen</button>`
           : `<button class="btn btn-ghost" data-act="del-locked" title="Nur Admin kann Schlüssel entfernen">🔒 Entfernen</button>`}
       </div>
@@ -647,13 +666,16 @@ async function renderManage(){
     const delBtn = row.querySelector('[data-act="del"]');
     if(delBtn) delBtn.addEventListener('click', ()=>deleteKey(k.id));
     const lockedBtn = row.querySelector('[data-act="del-locked"]');
-    if(lockedBtn) lockedBtn.addEventListener('click', ()=>{ toast('Nur der Admin kann Schlüssel entfernen — bitte einloggen.'); showAdminLogin(); });
+    if(lockedBtn) lockedBtn.addEventListener('click', ()=>{
+      toast(currentUser ? 'Nur Admins können Schlüssel entfernen.' : 'Bitte zuerst anmelden.');
+      if(!currentUser) showAdminLogin();
+    });
     list.appendChild(row);
   });
 }
 
 async function deleteKey(id){
-  if(!currentUser){ toast('Bitte zuerst als Admin anmelden.'); showAdminLogin(); return; }
+  if(!isAdmin){ toast('Nur Admins können Schlüssel entfernen.'); return; }
   if(!confirm(`Schlüssel ${id} wirklich entfernen? Das Protokoll wird mit gelöscht.`)) return;
   const ok = await deleteKeyDB(id);
   if(!ok) return;
@@ -798,7 +820,26 @@ async function loadScanResult(id){
     box.innerHTML = `<div class="empty">Kein Schlüssel mit ID <b class="mono">${escapeHtml(id)}</b> gefunden.</div>`;
     return;
   }
+
+  if(!currentUser){
+    box.innerHTML = `
+      <div class="card">
+        <div class="key-detail-head">
+          <div>
+            <div class="tag-id mono">${k.id}</div>
+            <div class="tag-label" style="margin-bottom:0;">${escapeHtml(k.label)}</div>
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--slate);margin:14px 0 16px;">Zum Eintragen ist ein Login nötig — so wissen wir immer, wer den Schlüssel wirklich hat.</p>
+        <button class="btn btn-brass" id="btn-login-to-scan">Anmelden</button>
+      </div>
+    `;
+    document.getElementById('btn-login-to-scan').addEventListener('click', showAdminLogin);
+    return;
+  }
+
   const isOut = k.status==='out';
+  const me = displayName(currentUser);
   box.innerHTML = `
     <div class="card">
       <div class="key-detail-head">
@@ -810,10 +851,11 @@ async function loadScanResult(id){
       </div>
       ${isOut ? `
         <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(k.holder)}</b>, seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason?' · '+escapeHtml(k.reason):''}</div>
+        <p style="font-size:12px;color:var(--slate);margin:0 0 10px;">Rückgabe wird protokolliert als: <b>${escapeHtml(me)}</b></p>
         <div class="field"><label for="ret-note">Anmerkung zur Rückgabe (optional)</label><input id="ret-note" type="text" placeholder="z. B. wieder im Kasten, Fach 3"></div>
         <button class="btn btn-brass" id="btn-return">Schlüssel zurückgeben</button>
       ` : `
-        <div class="field"><label for="take-holder">Name / Verantwortlich</label><input id="take-holder" type="text" placeholder="Vor- und Nachname"></div>
+        <p style="font-size:12px;color:var(--slate);margin:0 0 10px;">Entnahme wird protokolliert als: <b>${escapeHtml(me)}</b></p>
         <div class="field"><label for="take-loc">Wo befindet sich der Schlüssel jetzt?</label><input id="take-loc" type="text" value="${escapeHtml(k.location||'')}" placeholder="z. B. bei mir, Handwerkerfahrzeug"></div>
         <div class="field"><label for="take-reason">Grund der Entnahme</label><input id="take-reason" type="text" placeholder="z. B. Reparatur Heizung Wohnung 4"></div>
         <button class="btn btn-brass" id="btn-take">Schlüssel entnehmen</button>
@@ -823,20 +865,19 @@ async function loadScanResult(id){
   if(isOut){
     document.getElementById('btn-return').addEventListener('click', async ()=>{
       const note = document.getElementById('ret-note').value.trim();
-      const ok = await returnKeyDB(id, k.holder, note);
+      const ok = await returnKeyDB(id, me, note);
       if(!ok) return;
       toast(`Schlüssel ${id} zurückgegeben.`);
       loadScanResult(id);
     });
   } else {
     document.getElementById('btn-take').addEventListener('click', async ()=>{
-      const holder = document.getElementById('take-holder').value.trim();
       const loc = document.getElementById('take-loc').value.trim();
       const reason = document.getElementById('take-reason').value.trim();
-      if(!holder || !loc){ toast('Bitte Name und Standort angeben.'); return; }
-      const ok = await takeKeyDB(id, holder, loc, reason);
+      if(!loc){ toast('Bitte Standort angeben.'); return; }
+      const ok = await takeKeyDB(id, me, loc, reason);
       if(!ok) return;
-      toast(`Schlüssel ${id} auf ${holder} eingetragen.`);
+      toast(`Schlüssel ${id} auf ${me} eingetragen.`);
       loadScanResult(id);
     });
   }
