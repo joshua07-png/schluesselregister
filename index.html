@@ -172,6 +172,22 @@
     border-bottom:1.5px solid var(--paper-dark);
   }
   .object-group-header:first-child{margin-top:0;}
+
+  .filter-bar{
+    display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;
+  }
+  .search-input{
+    flex:1; min-width:200px;
+    padding:10px 12px; border-radius:8px; border:1.5px solid var(--paper-dark);
+    font-family:'Maven Pro',sans-serif; font-size:14px; background:#fcfcfc; color:var(--ink);
+  }
+  .search-input:focus{ outline:none; border-color:var(--accent); }
+  .sort-select{
+    padding:10px 12px; border-radius:8px; border:1.5px solid var(--paper-dark);
+    font-family:'Maven Pro',sans-serif; font-weight:600; font-size:13px;
+    background:#fcfcfc; color:var(--ink); cursor:pointer;
+  }
+  .sort-select:focus{ outline:none; border-color:var(--accent); }
   .tag-card{
     position:relative;
     background:var(--card);
@@ -332,6 +348,16 @@
       </div>
       <button class="btn btn-navy" id="btn-refresh">Aktualisieren</button>
     </div>
+    <div class="filter-bar">
+      <input type="text" id="dash-search" class="search-input" placeholder="Suchen — Name, ID, Standort, Inhaber…">
+      <select id="dash-sort" class="sort-select">
+        <option value="object">Sortieren: Nach Objekt</option>
+        <option value="label">Sortieren: Bezeichnung A–Z</option>
+        <option value="id">Sortieren: Schlüssel-ID</option>
+        <option value="status">Sortieren: Entnommen zuerst</option>
+        <option value="recent">Sortieren: Zuletzt angelegt</option>
+      </select>
+    </div>
     <div class="tag-grid" id="dash-grid"></div>
   </section>
 
@@ -365,8 +391,19 @@
         <p>QR-Tag anzeigen, drucken oder Schlüssel entfernen.</p>
       </div>
     </div>
+    <div class="filter-bar">
+      <input type="text" id="manage-search" class="search-input" placeholder="Suchen — Name, ID, Standort, Inhaber…">
+      <select id="manage-sort" class="sort-select">
+        <option value="object">Sortieren: Nach Objekt</option>
+        <option value="label">Sortieren: Bezeichnung A–Z</option>
+        <option value="id">Sortieren: Schlüssel-ID</option>
+        <option value="status">Sortieren: Entnommen zuerst</option>
+        <option value="recent">Sortieren: Zuletzt angelegt</option>
+      </select>
+    </div>
     <div id="manage-list" class="keys-manage-list"></div>
   </section>
+
 
   <!-- SCAN -->
   <section class="view" id="view-scan">
@@ -527,29 +564,82 @@ function sortKeysByObject(list){
   });
 }
 
+/* ---------------- search + sort ---------------- */
+function filterKeys(list, term){
+  const q = (term||'').trim().toLowerCase();
+  if(!q) return list;
+  return list.filter(k=>{
+    const hay = [k.id, k.label, k.location, k.holder, k.cur_location, k.reason]
+      .filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+}
+function sortKeys(list, mode){
+  const collate = (x,y)=> (x||'').localeCompare(y||'', 'de', { numeric:true, sensitivity:'base' });
+  switch(mode){
+    case 'label':
+      return list.slice().sort((a,b)=>collate(a.label,b.label));
+    case 'id':
+      return list.slice().sort((a,b)=>collate(a.id,b.id));
+    case 'status':
+      return list.slice().sort((a,b)=>{
+        const sa = a.status==='out'?0:1, sb = b.status==='out'?0:1;
+        return sa!==sb ? sa-sb : collate(a.label,b.label);
+      });
+    case 'recent':
+      return list.slice().sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+    case 'object':
+    default:
+      return sortKeysByObject(list);
+  }
+}
+
+let dashboardData = [];
+
 async function renderDashboard(){
   const grid = document.getElementById('dash-grid');
   const sub = document.getElementById('dash-sub');
   grid.innerHTML = '<div class="empty">Lade Bestand…</div>';
-  let registry = await fetchKeys();
-  if(registry.length===0){
+  dashboardData = await fetchKeys();
+  if(dashboardData.length===0){
     sub.textContent = 'Noch keine Schlüssel angelegt.';
     grid.innerHTML = '<div class="empty">Noch keine Schlüssel im Register.<br>Unter „Schlüssel verwalten" den ersten Schlüssel anlegen.</div>';
     return;
   }
-  registry = sortKeysByObject(registry);
-  const outCount = registry.filter(k=>k.status==='out').length;
-  sub.textContent = `${registry.length} Schlüssel · ${outCount} aktuell entnommen`;
+  renderDashboardList();
+}
+
+function renderDashboardList(){
+  const grid = document.getElementById('dash-grid');
+  const sub = document.getElementById('dash-sub');
+  const searchTerm = document.getElementById('dash-search').value;
+  const sortMode = document.getElementById('dash-sort').value;
+
+  let registry = filterKeys(dashboardData, searchTerm);
+  registry = sortKeys(registry, sortMode);
+
+  const outCount = dashboardData.filter(k=>k.status==='out').length;
+  sub.textContent = searchTerm.trim()
+    ? `${registry.length} von ${dashboardData.length} Schlüsseln · ${outCount} aktuell entnommen`
+    : `${dashboardData.length} Schlüssel · ${outCount} aktuell entnommen`;
+
+  if(registry.length===0){
+    grid.innerHTML = '<div class="empty">Keine Treffer für diese Suche.</div>';
+    return;
+  }
+
   grid.innerHTML = '';
   let lastObject = null;
   registry.forEach(k=>{
-    const obj = extractObjectLabel(k.label);
-    if(obj !== lastObject){
-      const header = document.createElement('div');
-      header.className = 'object-group-header';
-      header.textContent = obj || '(ohne Objektbezeichnung)';
-      grid.appendChild(header);
-      lastObject = obj;
+    if(sortMode==='object'){
+      const obj = extractObjectLabel(k.label);
+      if(obj !== lastObject){
+        const header = document.createElement('div');
+        header.className = 'object-group-header';
+        header.textContent = obj || '(ohne Objektbezeichnung)';
+        grid.appendChild(header);
+        lastObject = obj;
+      }
     }
     const isOut = k.status==='out';
     const card = document.createElement('div');
@@ -704,15 +794,29 @@ function showAdminLogin(){
   });
 }
 
+let manageData = [];
+
 async function renderManage(){
+  manageData = await fetchKeys();
+  renderManageList();
+}
+
+function renderManageList(){
   const list = document.getElementById('manage-list');
-  list.innerHTML = '<div class="empty">Lade…</div>';
-  let registry = await fetchKeys();
-  if(registry.length===0){
+  if(manageData.length===0){
     list.innerHTML = '<div class="empty">Noch keine Schlüssel angelegt.</div>';
     return;
   }
-  registry = sortKeysByObject(registry);
+  const searchTerm = document.getElementById('manage-search').value;
+  const sortMode = document.getElementById('manage-sort').value;
+  let registry = filterKeys(manageData, searchTerm);
+  registry = sortKeys(registry, sortMode);
+
+  if(registry.length===0){
+    list.innerHTML = '<div class="empty">Keine Treffer für diese Suche.</div>';
+    return;
+  }
+
   list.innerHTML='';
   registry.forEach(k=>{
     const row = document.createElement('div');
@@ -994,6 +1098,10 @@ async function loadScanResult(id){
 }
 
 document.getElementById('btn-refresh').addEventListener('click', renderDashboard);
+document.getElementById('dash-search').addEventListener('input', renderDashboardList);
+document.getElementById('dash-sort').addEventListener('change', renderDashboardList);
+document.getElementById('manage-search').addEventListener('input', renderManageList);
+document.getElementById('manage-sort').addEventListener('change', renderManageList);
 document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
 
 /* ---------------- init: check for ?key= param ---------------- */
