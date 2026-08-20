@@ -159,6 +159,19 @@
 
   /* --- key tag card, the signature element --- */
   .tag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;}
+  .object-group-header{
+    grid-column:1 / -1;
+    font-family:'Maven Pro',sans-serif;
+    font-weight:800;
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.6px;
+    color:var(--slate);
+    padding:6px 2px 4px;
+    margin-top:4px;
+    border-bottom:1.5px solid var(--paper-dark);
+  }
+  .object-group-header:first-child{margin-top:0;}
   .tag-card{
     position:relative;
     background:var(--card);
@@ -493,20 +506,51 @@ function switchView(name){
 }
 
 /* ---------------- dashboard ---------------- */
+/* ---------------- object/address grouping ---------------- */
+function extractObjectLabel(label){
+  if(!label) return '';
+  // Nimmt den Teil vor dem ersten gängigen Trennzeichen als "Objekt" (Adresse)
+  const seps = [' - ', ' – ', ' — ', ': ', ' | ', ', '];
+  let cut = label.length;
+  seps.forEach(sep=>{
+    const idx = label.indexOf(sep);
+    if(idx !== -1 && idx < cut) cut = idx;
+  });
+  return label.slice(0, cut).trim();
+}
+function sortKeysByObject(list){
+  return list.slice().sort((a,b)=>{
+    const objA = extractObjectLabel(a.label), objB = extractObjectLabel(b.label);
+    const cmp = objA.localeCompare(objB, 'de', { numeric:true, sensitivity:'base' });
+    if(cmp !== 0) return cmp;
+    return a.label.localeCompare(b.label, 'de', { numeric:true, sensitivity:'base' });
+  });
+}
+
 async function renderDashboard(){
   const grid = document.getElementById('dash-grid');
   const sub = document.getElementById('dash-sub');
   grid.innerHTML = '<div class="empty">Lade Bestand…</div>';
-  const registry = await fetchKeys();
+  let registry = await fetchKeys();
   if(registry.length===0){
     sub.textContent = 'Noch keine Schlüssel angelegt.';
     grid.innerHTML = '<div class="empty">Noch keine Schlüssel im Register.<br>Unter „Schlüssel verwalten" den ersten Schlüssel anlegen.</div>';
     return;
   }
+  registry = sortKeysByObject(registry);
   const outCount = registry.filter(k=>k.status==='out').length;
   sub.textContent = `${registry.length} Schlüssel · ${outCount} aktuell entnommen`;
   grid.innerHTML = '';
+  let lastObject = null;
   registry.forEach(k=>{
+    const obj = extractObjectLabel(k.label);
+    if(obj !== lastObject){
+      const header = document.createElement('div');
+      header.className = 'object-group-header';
+      header.textContent = obj || '(ohne Objektbezeichnung)';
+      grid.appendChild(header);
+      lastObject = obj;
+    }
     const isOut = k.status==='out';
     const card = document.createElement('div');
     card.className='tag-card';
@@ -663,11 +707,12 @@ function showAdminLogin(){
 async function renderManage(){
   const list = document.getElementById('manage-list');
   list.innerHTML = '<div class="empty">Lade…</div>';
-  const registry = await fetchKeys();
+  let registry = await fetchKeys();
   if(registry.length===0){
     list.innerHTML = '<div class="empty">Noch keine Schlüssel angelegt.</div>';
     return;
   }
+  registry = sortKeysByObject(registry);
   list.innerHTML='';
   registry.forEach(k=>{
     const row = document.createElement('div');
