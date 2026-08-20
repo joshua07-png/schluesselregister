@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Maven+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   :root{
@@ -204,19 +203,6 @@
 
   /* scan view */
   .scan-wrap{max-width:480px;margin:0 auto;}
-  .scan-box{
-    border-radius:var(--radius);overflow:hidden;background:var(--ink);
-    aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;position:relative;
-  }
-  .scan-box video{width:100%;height:100%;object-fit:cover;}
-  .scan-box .frame{
-    position:absolute;inset:14%;border:2px solid var(--accent);border-radius:14px;
-    box-shadow:0 0 0 999px rgba(0,0,0,.4);
-    pointer-events:none;
-  }
-  .scan-box .hint{color:#c9c9c9;font-size:13px;text-align:center;padding:20px;}
-  .divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--slate-light);font-size:12px;}
-  .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--paper-dark);}
 
   .key-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;}
   .history-list{margin-top:10px;border-top:1px solid var(--paper-dark);}
@@ -352,19 +338,11 @@
       <div class="section-head" style="margin-bottom:14px;">
         <div>
           <span class="eyebrow">Scannen | Jürgen Rossegger</span>
-          <h2>Schlüssel scannen</h2>
-          <p>QR-Code scannen oder die Schlüssel-ID unten eingeben.</p>
+          <h2>Schlüssel eintragen</h2>
+          <p>Schlüssel-ID eingeben — oder den QR-Code am Schlüssel direkt mit der Handykamera scannen, das öffnet dieses Formular automatisch.</p>
         </div>
       </div>
 
-      <div class="scan-box" id="scan-box">
-        <div class="hint" id="scan-hint">Kamera nicht aktiv.<br>Auf „Kamera starten" tippen oder ID unten eingeben.</div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="btn btn-navy" id="btn-cam-toggle" style="flex:1;">Kamera starten</button>
-      </div>
-
-      <div class="divider">oder ID eingeben</div>
       <div class="field" style="display:flex;gap:8px;align-items:flex-end;">
         <div style="flex:1;">
           <label for="in-scan-id">Schlüssel-ID</label>
@@ -469,7 +447,6 @@ function switchView(name){
   document.getElementById('view-'+name).classList.add('active');
   if(name==='dashboard') renderDashboard();
   if(name==='manage') renderManage();
-  if(name==='scan') { stopCamera(); }
 }
 
 /* ---------------- dashboard ---------------- */
@@ -780,55 +757,6 @@ async function loadScanResult(id){
       loadScanResult(id);
     });
   }
-}
-
-/* ---------------- camera scanning ---------------- */
-let stream = null, scanning = false;
-const camBtn = document.getElementById('btn-cam-toggle');
-camBtn.addEventListener('click', ()=>{
-  if(scanning) stopCamera(); else startCamera();
-});
-async function startCamera(){
-  const box = document.getElementById('scan-box');
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
-  }catch(e){
-    toast('Kamerazugriff nicht möglich — bitte ID manuell eingeben.');
-    return;
-  }
-  box.innerHTML = `<video id="scanVideo" playsinline autoplay muted></video><div class="frame"></div>`;
-  const video = document.getElementById('scanVideo');
-  video.srcObject = stream;
-  await video.play();
-  scanning = true;
-  camBtn.textContent = 'Kamera stoppen';
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  function tick(){
-    if(!scanning) return;
-    if(video.readyState === video.HAVE_ENOUGH_DATA){
-      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-      ctx.drawImage(video,0,0,canvas.width,canvas.height);
-      const img = ctx.getImageData(0,0,canvas.width,canvas.height);
-      const code = jsQR(img.data, img.width, img.height);
-      if(code && code.data){
-        const id = code.data.trim().toUpperCase();
-        stopCamera();
-        document.getElementById('in-scan-id').value = id;
-        loadScanResult(id);
-        return;
-      }
-    }
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
-}
-function stopCamera(){
-  scanning = false;
-  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  camBtn.textContent = 'Kamera starten';
-  const box = document.getElementById('scan-box');
-  box.innerHTML = `<div class="hint" id="scan-hint">Kamera nicht aktiv.<br>Auf „Kamera starten" tippen oder ID unten eingeben.</div>`;
 }
 
 document.getElementById('btn-refresh').addEventListener('click', renderDashboard);
