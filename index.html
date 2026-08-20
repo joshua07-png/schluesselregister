@@ -288,6 +288,7 @@
 </head>
 <body>
 <div id="printQrGenerator" style="position:absolute;left:-9999px;top:-9999px;"></div>
+<datalist id="location-suggestions"></datalist>
 
 <header class="app">
   <div class="brand-eyebrow">
@@ -338,7 +339,7 @@
         </div>
         <div class="field">
           <label for="in-loc">Standardstandort (optional)</label>
-          <input id="in-loc" type="text" placeholder="z. B. Schlüsselkasten Büro, Fach 3">
+          <input id="in-loc" type="text" list="location-suggestions" placeholder="z. B. Schlüsselkasten Büro, Fach 3">
         </div>
       </div>
       <button class="btn btn-brass" id="btn-add-key">Schlüssel anlegen</button>
@@ -409,6 +410,11 @@ async function insertKey(id, label, location){
   if(error){ toast('Fehler beim Anlegen: ' + error.message); return false; }
   return true;
 }
+async function updateKeyMeta(id, label, location){
+  const { error } = await db.from('keys').update({ label, location }).eq('id', id);
+  if(error){ toast('Fehler beim Speichern: ' + error.message); return false; }
+  return true;
+}
 async function deleteKeyDB(id){
   const { error } = await db.from('keys').delete().eq('id', id);
   if(error){ toast('Fehler beim Entfernen: ' + error.message); return false; }
@@ -459,6 +465,20 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+async function refreshLocationSuggestions(){
+  const dl = document.getElementById('location-suggestions');
+  const locSet = new Set();
+  const keys = await fetchKeys();
+  keys.forEach(k=>{
+    if(k.location) locSet.add(k.location);
+    if(k.cur_location) locSet.add(k.cur_location);
+  });
+  const { data } = await db.from('key_history').select('location');
+  if(data) data.forEach(r=>{ if(r.location) locSet.add(r.location); });
+  dl.innerHTML = Array.from(locSet).sort((a,b)=>a.localeCompare(b,'de'))
+    .map(l=>`<option value="${escapeHtml(l)}"></option>`).join('');
+}
+
 /* ---------------- view / tab switching ---------------- */
 document.querySelectorAll('nav.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>switchView(btn.dataset.view));
@@ -468,7 +488,8 @@ function switchView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   if(name==='dashboard') renderDashboard();
-  if(name==='manage') renderManage();
+  if(name==='manage'){ renderManage(); refreshLocationSuggestions(); }
+  if(name==='scan') refreshLocationSuggestions();
 }
 
 /* ---------------- dashboard ---------------- */
@@ -563,6 +584,7 @@ document.getElementById('btn-add-key').addEventListener('click', async ()=>{
   document.getElementById('in-loc').value='';
   toast(`Schlüssel ${id} angelegt.`);
   renderManage();
+  refreshLocationSuggestions();
 });
 
 /* ---------------- auth (members + admins) ---------------- */
@@ -656,6 +678,9 @@ async function renderManage(){
         <div class="id mono">${k.id}</div>
       </div>
       <div class="actions">
+        ${currentUser
+          ? `<button class="btn btn-ghost" data-act="edit">Bearbeiten</button>`
+          : `<button class="btn btn-ghost" data-act="edit-locked" title="Login nötig">🔒 Bearbeiten</button>`}
         <button class="btn btn-ghost" data-act="qr">QR-Tag</button>
         ${isAdmin
           ? `<button class="btn btn-danger" data-act="del">Entfernen</button>`
@@ -663,6 +688,10 @@ async function renderManage(){
       </div>
     `;
     row.querySelector('[data-act="qr"]').addEventListener('click', ()=>showQrTag(k));
+    const editBtn = row.querySelector('[data-act="edit"]');
+    if(editBtn) editBtn.addEventListener('click', ()=>showEditKey(k));
+    const editLockedBtn = row.querySelector('[data-act="edit-locked"]');
+    if(editLockedBtn) editLockedBtn.addEventListener('click', ()=>{ toast('Bitte zuerst anmelden.'); showAdminLogin(); });
     const delBtn = row.querySelector('[data-act="del"]');
     if(delBtn) delBtn.addEventListener('click', ()=>deleteKey(k.id));
     const lockedBtn = row.querySelector('[data-act="del-locked"]');
@@ -681,6 +710,33 @@ async function deleteKey(id){
   if(!ok) return;
   toast('Schlüssel entfernt.');
   renderManage();
+}
+
+function showEditKey(k){
+  if(!currentUser){ toast('Bitte zuerst anmelden.'); showAdminLogin(); return; }
+  const modal = document.getElementById('modal-body');
+  modal.innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h3 class="display" style="margin-top:0;">Schlüssel bearbeiten</h3>
+    <div class="tag-id mono" style="margin-bottom:14px;">${k.id}</div>
+    <div class="field"><label for="edit-label">Bezeichnung</label><input id="edit-label" type="text" value="${escapeHtml(k.label)}"></div>
+    <div class="field"><label for="edit-loc">Standardstandort</label><input id="edit-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. Schlüsselkasten Büro, Fach 3"></div>
+    <button class="btn btn-brass" id="btn-edit-save">Speichern</button>
+    <div id="edit-error" style="color:#b1492c;font-size:12.5px;margin-top:10px;"></div>
+  `;
+  document.getElementById('overlay').classList.add('active');
+  document.getElementById('btn-edit-save').addEventListener('click', async ()=>{
+    const label = document.getElementById('edit-label').value.trim();
+    const loc = document.getElementById('edit-loc').value.trim();
+    const errBox = document.getElementById('edit-error');
+    if(!label){ errBox.textContent = 'Bitte eine Bezeichnung eingeben.'; return; }
+    const ok = await updateKeyMeta(k.id, label, loc);
+    if(!ok) return;
+    toast(`Schlüssel ${k.id} aktualisiert.`);
+    closeModal();
+    renderManage();
+    refreshLocationSuggestions();
+  });
 }
 
 function showQrTag(k){
@@ -856,7 +912,7 @@ async function loadScanResult(id){
         <button class="btn btn-brass" id="btn-return">Schlüssel zurückgeben</button>
       ` : `
         <p style="font-size:12px;color:var(--slate);margin:0 0 10px;">Entnahme wird protokolliert als: <b>${escapeHtml(me)}</b></p>
-        <div class="field"><label for="take-loc">Wo befindet sich der Schlüssel jetzt?</label><input id="take-loc" type="text" value="${escapeHtml(k.location||'')}" placeholder="z. B. bei mir, Handwerkerfahrzeug"></div>
+        <div class="field"><label for="take-loc">Wo befindet sich der Schlüssel jetzt?</label><input id="take-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. bei mir, Handwerkerfahrzeug"></div>
         <div class="field"><label for="take-reason">Grund der Entnahme</label><input id="take-reason" type="text" placeholder="z. B. Reparatur Heizung Wohnung 4"></div>
         <button class="btn btn-brass" id="btn-take">Schlüssel entnehmen</button>
       `}
@@ -869,6 +925,7 @@ async function loadScanResult(id){
       if(!ok) return;
       toast(`Schlüssel ${id} zurückgegeben.`);
       loadScanResult(id);
+      refreshLocationSuggestions();
     });
   } else {
     document.getElementById('btn-take').addEventListener('click', async ()=>{
@@ -879,6 +936,7 @@ async function loadScanResult(id){
       if(!ok) return;
       toast(`Schlüssel ${id} auf ${me} eingetragen.`);
       loadScanResult(id);
+      refreshLocationSuggestions();
     });
   }
 }
