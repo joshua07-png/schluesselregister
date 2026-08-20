@@ -84,7 +84,7 @@
     font-weight:500;
   }
   nav.tabs{
-    display:flex; gap:8px; margin-top:22px; flex-wrap:wrap;
+    display:flex; gap:8px; margin-top:22px; flex-wrap:wrap; align-items:center;
   }
   nav.tabs button{
     font-family:'Maven Pro',sans-serif;
@@ -108,6 +108,26 @@
   nav.tabs button:not(.active):hover{
     background:rgba(255,255,255,.1);
   }
+  #admin-area{display:flex;align-items:center;gap:8px;}
+  .admin-chip{
+    display:flex;align-items:center;gap:8px;
+    font-size:12px;color:#c9c9c9;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.18);
+    padding:6px 12px;border-radius:999px;
+  }
+  .admin-chip b{color:var(--accent-3);font-weight:700;}
+  .admin-chip button{
+    background:none;border:none;color:#c9c9c9;font-size:12px;
+    text-decoration:underline;cursor:pointer;padding:0;font-family:'Maven Pro',sans-serif;
+  }
+  #btn-admin-login{
+    font-family:'Maven Pro',sans-serif;font-weight:700;font-size:12px;
+    text-transform:uppercase;letter-spacing:.4px;
+    padding:9px 14px;border-radius:999px;border:1px dashed rgba(255,255,255,.3);
+    background:transparent;color:#9a9a9a;cursor:pointer;
+  }
+  #btn-admin-login:hover{color:#eaeaea;border-color:rgba(255,255,255,.5);}
 
   main{max-width:1080px;margin:0 auto;padding:26px 22px 80px;}
   .view{display:none;}
@@ -279,6 +299,8 @@
     <button data-view="dashboard" class="active">Übersicht</button>
     <button data-view="manage">Schlüssel verwalten</button>
     <button data-view="scan">Scannen / Eintragen</button>
+    <span style="flex:1;min-width:8px;"></span>
+    <div id="admin-area"></div>
   </nav>
 </header>
 
@@ -542,6 +564,61 @@ document.getElementById('btn-add-key').addEventListener('click', async ()=>{
   renderManage();
 });
 
+/* ---------------- admin auth ---------------- */
+let currentUser = null;
+
+async function initAuth(){
+  const { data: { session } } = await db.auth.getSession();
+  currentUser = session ? session.user : null;
+  renderAdminArea();
+  db.auth.onAuthStateChange((_event, session)=>{
+    currentUser = session ? session.user : null;
+    renderAdminArea();
+    renderManage();
+  });
+}
+
+function renderAdminArea(){
+  const area = document.getElementById('admin-area');
+  if(currentUser){
+    area.innerHTML = `
+      <div class="admin-chip">Admin: <b>${escapeHtml(currentUser.email)}</b> <button id="btn-admin-logout">Abmelden</button></div>
+    `;
+    document.getElementById('btn-admin-logout').addEventListener('click', async ()=>{
+      await db.auth.signOut();
+      toast('Abgemeldet.');
+    });
+  } else {
+    area.innerHTML = `<button id="btn-admin-login">Admin-Login</button>`;
+    document.getElementById('btn-admin-login').addEventListener('click', showAdminLogin);
+  }
+}
+
+function showAdminLogin(){
+  const modal = document.getElementById('modal-body');
+  modal.innerHTML = `
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h3 class="display" style="margin-top:0;">Admin-Login</h3>
+    <p style="font-size:12.5px;color:var(--slate);margin-top:-6px;">Nur Admins können Schlüssel dauerhaft entfernen.</p>
+    <div class="field"><label for="admin-email">E-Mail</label><input id="admin-email" type="email" placeholder="admin@rossegger-gmbh.de"></div>
+    <div class="field"><label for="admin-pass">Passwort</label><input id="admin-pass" type="password" placeholder="••••••••"></div>
+    <button class="btn btn-brass" id="btn-admin-submit">Anmelden</button>
+    <div id="admin-login-error" style="color:#b1492c;font-size:12.5px;margin-top:10px;"></div>
+  `;
+  document.getElementById('overlay').classList.add('active');
+  document.getElementById('btn-admin-submit').addEventListener('click', async ()=>{
+    const email = document.getElementById('admin-email').value.trim();
+    const pass = document.getElementById('admin-pass').value;
+    const errBox = document.getElementById('admin-login-error');
+    errBox.textContent = '';
+    if(!email || !pass){ errBox.textContent = 'Bitte E-Mail und Passwort eingeben.'; return; }
+    const { error } = await db.auth.signInWithPassword({ email, password: pass });
+    if(error){ errBox.textContent = 'Anmeldung fehlgeschlagen: ' + error.message; return; }
+    toast('Als Admin angemeldet.');
+    closeModal();
+  });
+}
+
 async function renderManage(){
   const list = document.getElementById('manage-list');
   list.innerHTML = '<div class="empty">Lade…</div>';
@@ -561,16 +638,22 @@ async function renderManage(){
       </div>
       <div class="actions">
         <button class="btn btn-ghost" data-act="qr">QR-Tag</button>
-        <button class="btn btn-danger" data-act="del">Entfernen</button>
+        ${currentUser
+          ? `<button class="btn btn-danger" data-act="del">Entfernen</button>`
+          : `<button class="btn btn-ghost" data-act="del-locked" title="Nur Admin kann Schlüssel entfernen">🔒 Entfernen</button>`}
       </div>
     `;
     row.querySelector('[data-act="qr"]').addEventListener('click', ()=>showQrTag(k));
-    row.querySelector('[data-act="del"]').addEventListener('click', ()=>deleteKey(k.id));
+    const delBtn = row.querySelector('[data-act="del"]');
+    if(delBtn) delBtn.addEventListener('click', ()=>deleteKey(k.id));
+    const lockedBtn = row.querySelector('[data-act="del-locked"]');
+    if(lockedBtn) lockedBtn.addEventListener('click', ()=>{ toast('Nur der Admin kann Schlüssel entfernen — bitte einloggen.'); showAdminLogin(); });
     list.appendChild(row);
   });
 }
 
 async function deleteKey(id){
+  if(!currentUser){ toast('Bitte zuerst als Admin anmelden.'); showAdminLogin(); return; }
   if(!confirm(`Schlüssel ${id} wirklich entfernen? Das Protokoll wird mit gelöscht.`)) return;
   const ok = await deleteKeyDB(id);
   if(!ok) return;
@@ -764,6 +847,7 @@ document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id
 
 /* ---------------- init: check for ?key= param ---------------- */
 (function init(){
+  initAuth();
   const params = new URLSearchParams(window.location.search);
   const keyParam = params.get('key');
   if(keyParam){
