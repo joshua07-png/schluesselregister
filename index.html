@@ -350,11 +350,15 @@
     </div>
     <div class="filter-bar">
       <input type="text" id="dash-search" class="search-input" placeholder="Suchen — Name, ID, Standort, Inhaber…">
+      <select id="dash-location-filter" class="sort-select">
+        <option value="">Alle Standorte</option>
+      </select>
       <select id="dash-sort" class="sort-select">
         <option value="object">Sortieren: Nach Objekt</option>
         <option value="label">Sortieren: Bezeichnung A–Z</option>
         <option value="id">Sortieren: Schlüssel-ID</option>
         <option value="status">Sortieren: Entnommen zuerst</option>
+        <option value="location">Sortieren: Aktueller Standort</option>
         <option value="recent">Sortieren: Zuletzt angelegt</option>
       </select>
     </div>
@@ -393,11 +397,15 @@
     </div>
     <div class="filter-bar">
       <input type="text" id="manage-search" class="search-input" placeholder="Suchen — Name, ID, Standort, Inhaber…">
+      <select id="manage-location-filter" class="sort-select">
+        <option value="">Alle Standorte</option>
+      </select>
       <select id="manage-sort" class="sort-select">
         <option value="object">Sortieren: Nach Objekt</option>
         <option value="label">Sortieren: Bezeichnung A–Z</option>
         <option value="id">Sortieren: Schlüssel-ID</option>
         <option value="status">Sortieren: Entnommen zuerst</option>
+        <option value="location">Sortieren: Aktueller Standort</option>
         <option value="recent">Sortieren: Zuletzt angelegt</option>
       </select>
     </div>
@@ -516,7 +524,6 @@ function escapeHtml(s){
 }
 
 async function refreshLocationSuggestions(){
-  const dl = document.getElementById('location-suggestions');
   const locSet = new Set();
   const keys = await fetchKeys();
   keys.forEach(k=>{
@@ -525,8 +532,19 @@ async function refreshLocationSuggestions(){
   });
   const { data } = await db.from('key_history').select('location');
   if(data) data.forEach(r=>{ if(r.location) locSet.add(r.location); });
-  dl.innerHTML = Array.from(locSet).sort((a,b)=>a.localeCompare(b,'de'))
-    .map(l=>`<option value="${escapeHtml(l)}"></option>`).join('');
+  const sorted = Array.from(locSet).sort((a,b)=>a.localeCompare(b,'de'));
+
+  const dl = document.getElementById('location-suggestions');
+  dl.innerHTML = sorted.map(l=>`<option value="${escapeHtml(l)}"></option>`).join('');
+
+  ['dash-location-filter','manage-location-filter'].forEach(id=>{
+    const sel = document.getElementById(id);
+    if(!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Alle Standorte</option>' +
+      sorted.map(l=>`<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+    if(sorted.includes(current)) sel.value = current;
+  });
 }
 
 /* ---------------- view / tab switching ---------------- */
@@ -537,7 +555,7 @@ function switchView(name){
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.view===name));
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
-  if(name==='dashboard') renderDashboard();
+  if(name==='dashboard'){ renderDashboard(); refreshLocationSuggestions(); }
   if(name==='manage'){ renderManage(); refreshLocationSuggestions(); }
   if(name==='scan') refreshLocationSuggestions();
 }
@@ -546,8 +564,13 @@ function switchView(name){
 /* ---------------- object/address grouping ---------------- */
 function extractObjectLabel(label){
   if(!label) return '';
-  // Nimmt den Teil vor dem ersten gängigen Trennzeichen als "Objekt" (Adresse)
-  const seps = [' - ', ' – ', ' — ', ': ', ' | ', ', '];
+  // "|" hat Vorrang, da es gezielt als Trenner NACH der Adresse gesetzt wird
+  // und nicht innerhalb der Adresse selbst vorkommt (anders als Komma/Doppelpunkt).
+  if(label.includes('|')){
+    return label.split('|')[0].trim();
+  }
+  // Fallback fuer Bezeichnungen ohne "|"
+  const seps = [' - ', ' – ', ' — ', ': '];
   let cut = label.length;
   seps.forEach(sep=>{
     const idx = label.indexOf(sep);
@@ -564,15 +587,27 @@ function sortKeysByObject(list){
   });
 }
 
+// "Aktueller Standort": bei entnommenen Schluesseln der eingetragene Standort,
+// bei verfuegbaren Schluesseln der Standardstandort (dort befindet er sich ja gerade).
+function currentPhysicalLocation(k){
+  return (k.status==='out' ? k.cur_location : k.location) || '';
+}
+
 /* ---------------- search + sort ---------------- */
-function filterKeys(list, term){
+function filterKeys(list, term, locationFilter){
+  let out = list;
+  if(locationFilter){
+    out = out.filter(k=> currentPhysicalLocation(k) === locationFilter);
+  }
   const q = (term||'').trim().toLowerCase();
-  if(!q) return list;
-  return list.filter(k=>{
-    const hay = [k.id, k.label, k.location, k.holder, k.cur_location, k.reason]
-      .filter(Boolean).join(' ').toLowerCase();
-    return hay.includes(q);
-  });
+  if(q){
+    out = out.filter(k=>{
+      const hay = [k.id, k.label, k.location, k.holder, k.cur_location, k.reason]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  return out;
 }
 function sortKeys(list, mode){
   const collate = (x,y)=> (x||'').localeCompare(y||'', 'de', { numeric:true, sensitivity:'base' });
@@ -588,6 +623,11 @@ function sortKeys(list, mode){
       });
     case 'recent':
       return list.slice().sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+    case 'location':
+      return list.slice().sort((a,b)=>{
+        const cmp = collate(currentPhysicalLocation(a), currentPhysicalLocation(b));
+        return cmp !== 0 ? cmp : collate(a.label,b.label);
+      });
     case 'object':
     default:
       return sortKeysByObject(list);
@@ -614,12 +654,13 @@ function renderDashboardList(){
   const sub = document.getElementById('dash-sub');
   const searchTerm = document.getElementById('dash-search').value;
   const sortMode = document.getElementById('dash-sort').value;
+  const locFilter = document.getElementById('dash-location-filter').value;
 
-  let registry = filterKeys(dashboardData, searchTerm);
+  let registry = filterKeys(dashboardData, searchTerm, locFilter);
   registry = sortKeys(registry, sortMode);
 
   const outCount = dashboardData.filter(k=>k.status==='out').length;
-  sub.textContent = searchTerm.trim()
+  sub.textContent = (searchTerm.trim() || locFilter)
     ? `${registry.length} von ${dashboardData.length} Schlüsseln · ${outCount} aktuell entnommen`
     : `${dashboardData.length} Schlüssel · ${outCount} aktuell entnommen`;
 
@@ -809,7 +850,8 @@ function renderManageList(){
   }
   const searchTerm = document.getElementById('manage-search').value;
   const sortMode = document.getElementById('manage-sort').value;
-  let registry = filterKeys(manageData, searchTerm);
+  const locFilter = document.getElementById('manage-location-filter').value;
+  let registry = filterKeys(manageData, searchTerm, locFilter);
   registry = sortKeys(registry, sortMode);
 
   if(registry.length===0){
@@ -1100,8 +1142,10 @@ async function loadScanResult(id){
 document.getElementById('btn-refresh').addEventListener('click', renderDashboard);
 document.getElementById('dash-search').addEventListener('input', renderDashboardList);
 document.getElementById('dash-sort').addEventListener('change', renderDashboardList);
+document.getElementById('dash-location-filter').addEventListener('change', renderDashboardList);
 document.getElementById('manage-search').addEventListener('input', renderManageList);
 document.getElementById('manage-sort').addEventListener('change', renderManageList);
+document.getElementById('manage-location-filter').addEventListener('change', renderManageList);
 document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
 
 /* ---------------- init: check for ?key= param ---------------- */
@@ -1115,6 +1159,7 @@ document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id
     loadScanResult(keyParam.toUpperCase());
   } else {
     renderDashboard();
+    refreshLocationSuggestions();
   }
 })();
 </script>
