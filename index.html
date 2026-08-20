@@ -578,9 +578,17 @@ function extractObjectLabel(label){
   });
   return label.slice(0, cut).trim();
 }
+// Normalisiert das erkannte Objekt fuer die GRUPPIERUNG: Haeuser auf demselben
+// Flurstueck werden oft als "Hausnummer/1", "Hausnummer/2" erfasst (z.B. "Hauptstrasse 8/1").
+// Fuer die Gruppierung zaehlt das als dasselbe Objekt wie "Hauptstrasse 8" -- die
+// volle Adresse bleibt auf der einzelnen Schluessel-Karte trotzdem sichtbar.
+function normalizeObjectKey(obj){
+  return obj.replace(/\s*\/\s*\d+\s*$/, '').trim();
+}
 function sortKeysByObject(list){
   return list.slice().sort((a,b)=>{
-    const objA = extractObjectLabel(a.label), objB = extractObjectLabel(b.label);
+    const objA = normalizeObjectKey(extractObjectLabel(a.label));
+    const objB = normalizeObjectKey(extractObjectLabel(b.label));
     const cmp = objA.localeCompare(objB, 'de', { numeric:true, sensitivity:'base' });
     if(cmp !== 0) return cmp;
     return a.label.localeCompare(b.label, 'de', { numeric:true, sensitivity:'base' });
@@ -673,7 +681,7 @@ function renderDashboardList(){
   let lastObject = null;
   registry.forEach(k=>{
     if(sortMode==='object'){
-      const obj = extractObjectLabel(k.label);
+      const obj = normalizeObjectKey(extractObjectLabel(k.label));
       if(obj !== lastObject){
         const header = document.createElement('div');
         header.className = 'object-group-header';
