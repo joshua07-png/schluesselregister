@@ -410,6 +410,8 @@
       </select>
     </div>
     <div id="manage-list" class="keys-manage-list"></div>
+
+    <div id="admin-employee-section"></div>
   </section>
 
 
@@ -848,6 +850,93 @@ let manageData = [];
 async function renderManage(){
   manageData = await fetchKeys();
   renderManageList();
+  renderEmployeeSection();
+}
+
+function renderEmployeeSection(){
+  const area = document.getElementById('admin-employee-section');
+  if(!isAdmin){ area.innerHTML = ''; return; }
+  area.innerHTML = `
+    <div class="section-head" style="margin-top:34px;">
+      <div>
+        <span class="eyebrow">Verwaltung | Jürgen Rossegger</span>
+        <h2>Mitarbeiter anlegen</h2>
+        <p>Nur für Admins sichtbar. Neue Person bekommt eine Bestätigungs-Mail von Supabase und kann sich danach mit dem hier gesetzten Passwort einloggen.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row2">
+        <div class="field">
+          <label for="emp-name">Voller Name</label>
+          <input id="emp-name" type="text" placeholder="Vorname Nachname">
+        </div>
+        <div class="field">
+          <label for="emp-email">E-Mail</label>
+          <input id="emp-email" type="email" placeholder="name@rossegger-gmbh.de">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="emp-pass">Passwort (mindestens 6 Zeichen)</label>
+          <input id="emp-pass" type="text" placeholder="Wird der Person mitgeteilt">
+        </div>
+        <div class="field" style="display:flex;align-items:flex-end;padding-bottom:8px;">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;cursor:pointer;">
+            <input id="emp-admin" type="checkbox" style="width:16px;height:16px;">
+            Admin-Rechte geben (darf auch löschen/bearbeiten)
+          </label>
+        </div>
+      </div>
+      <button class="btn btn-brass" id="btn-create-employee">Mitarbeiter anlegen</button>
+      <div id="emp-msg" style="font-size:12.5px;margin-top:10px;"></div>
+    </div>
+  `;
+  document.getElementById('btn-create-employee').addEventListener('click', createEmployeeAccount);
+}
+
+async function createEmployeeAccount(){
+  const name = document.getElementById('emp-name').value.trim();
+  const email = document.getElementById('emp-email').value.trim();
+  const pass = document.getElementById('emp-pass').value;
+  const asAdmin = document.getElementById('emp-admin').checked;
+  const msg = document.getElementById('emp-msg');
+  msg.style.color = 'var(--slate)';
+  msg.textContent = '';
+
+  if(!name || !email || !pass){ msg.style.color='#b1492c'; msg.textContent = 'Bitte Name, E-Mail und Passwort ausfüllen.'; return; }
+  if(pass.length < 6){ msg.style.color='#b1492c'; msg.textContent = 'Passwort muss mindestens 6 Zeichen haben.'; return; }
+
+  msg.textContent = 'Wird angelegt…';
+
+  // Eigener, isolierter Client nur fuer die Registrierung -- verwendet keine
+  // eigene Session, damit der eingeloggte Admin dabei nicht abgemeldet wird.
+  const signupClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+
+  const { data, error } = await signupClient.auth.signUp({
+    email, password: pass,
+    options: { data: { full_name: name } }
+  });
+
+  if(error){ msg.style.color='#b1492c'; msg.textContent = 'Fehler: ' + error.message; return; }
+
+  if(asAdmin){
+    const { error: adminErr } = await db.from('admins').insert({ email });
+    if(adminErr){
+      msg.style.color='#b1492c';
+      msg.textContent = `Account erstellt, aber Admin-Rechte konnten nicht gesetzt werden: ${adminErr.message}`;
+      return;
+    }
+  }
+
+  msg.style.color = 'var(--accent-2)';
+  msg.textContent = `${name} wurde angelegt${asAdmin ? ' (als Admin)' : ''}. Die Person erhält eine Bestätigungs-Mail von Supabase und kann sich danach mit dem gesetzten Passwort einloggen.`;
+  document.getElementById('emp-name').value='';
+  document.getElementById('emp-email').value='';
+  document.getElementById('emp-pass').value='';
+  document.getElementById('emp-admin').checked=false;
+  toast(`Mitarbeiter-Account für ${name} angelegt.`);
 }
 
 function renderManageList(){
