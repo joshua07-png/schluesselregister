@@ -493,13 +493,13 @@ async function takeKeyDB(id, holder, location, reason){
   if(e2){ toast('Fehler im Protokoll: ' + e2.message); }
   return true;
 }
-async function returnKeyDB(id, holder, note){
+async function returnKeyDB(id, holder, location, reason){
   const now = new Date().toISOString();
   const { error: e1 } = await db.from('keys').update({
     status:'available', holder:null, cur_location:null, reason:null, since:null
   }).eq('id', id);
   if(e1){ toast('Fehler: ' + e1.message); return false; }
-  const { error: e2 } = await db.from('key_history').insert({ key_id:id, action:'return', holder, location: note || 'zurückgegeben', reason:'', timestamp:now });
+  const { error: e2 } = await db.from('key_history').insert({ key_id:id, action:'return', holder, location, reason, timestamp:now });
   if(e2){ toast('Fehler im Protokoll: ' + e2.message); }
   return true;
 }
@@ -1251,12 +1251,15 @@ async function loadScanResult(id){
       </div>
       ${isOut ? `
         <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(k.holder)}</b>, seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason?' · '+escapeHtml(k.reason):''}</div>
-        <p style="font-size:12px;color:var(--slate);margin:0 0 10px;">Rückgabe wird protokolliert als: <b>${escapeHtml(me)}</b></p>
-        <div class="field"><label for="ret-note">Anmerkung zur Rückgabe (optional)</label><input id="ret-note" type="text" placeholder="z. B. wieder im Kasten, Fach 3"></div>
+        <div class="field"><label for="return-holder">Zurückgegeben von</label><input id="return-holder" type="text" value="${escapeHtml(me)}" placeholder="Name"></div>
+        <p style="font-size:11px;color:var(--slate);margin:-8px 0 12px;">Voreingestellt mit deinem Namen — bei Bedarf ändern, falls jemand anderes tatsächlich zurückgibt.</p>
+        <div class="field"><label for="return-loc">Aktueller Standort</label><input id="return-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. Schlüsselkasten Büro, Fach 3"></div>
+        <div class="field"><label for="return-reason">Grund der Rückgabe (optional)</label><input id="return-reason" type="text" placeholder="z. B. Reparatur abgeschlossen"></div>
         <button class="btn btn-brass" id="btn-return">Schlüssel zurückgeben</button>
       ` : `
-        <p style="font-size:12px;color:var(--slate);margin:0 0 10px;">Entnahme wird protokolliert als: <b>${escapeHtml(me)}</b></p>
-        <div class="field"><label for="take-loc">Wo befindet sich der Schlüssel jetzt?</label><input id="take-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. bei mir, Handwerkerfahrzeug"></div>
+        <div class="field"><label for="take-holder">Entnommen von</label><input id="take-holder" type="text" value="${escapeHtml(me)}" placeholder="Name"></div>
+        <p style="font-size:11px;color:var(--slate);margin:-8px 0 12px;">Voreingestellt mit deinem Namen — bei Bedarf ändern, falls jemand anderes tatsächlich entnimmt.</p>
+        <div class="field"><label for="take-loc">Aktueller Standort</label><input id="take-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. bei mir, Handwerkerfahrzeug"></div>
         <div class="field"><label for="take-reason">Grund der Entnahme</label><input id="take-reason" type="text" placeholder="z. B. Reparatur Heizung Wohnung 4"></div>
         <button class="btn btn-brass" id="btn-take">Schlüssel entnehmen</button>
       `}
@@ -1264,8 +1267,12 @@ async function loadScanResult(id){
   `;
   if(isOut){
     document.getElementById('btn-return').addEventListener('click', async ()=>{
-      const note = document.getElementById('ret-note').value.trim();
-      const ok = await returnKeyDB(id, me, note);
+      const holder = document.getElementById('return-holder').value.trim();
+      const loc = document.getElementById('return-loc').value.trim();
+      const reason = document.getElementById('return-reason').value.trim();
+      if(!holder){ toast('Bitte Namen angeben.'); return; }
+      if(!loc){ toast('Bitte Standort angeben.'); return; }
+      const ok = await returnKeyDB(id, holder, loc, reason);
       if(!ok) return;
       toast(`Schlüssel ${id} zurückgegeben.`);
       loadScanResult(id);
@@ -1273,12 +1280,14 @@ async function loadScanResult(id){
     });
   } else {
     document.getElementById('btn-take').addEventListener('click', async ()=>{
+      const holder = document.getElementById('take-holder').value.trim();
       const loc = document.getElementById('take-loc').value.trim();
       const reason = document.getElementById('take-reason').value.trim();
+      if(!holder){ toast('Bitte Namen angeben.'); return; }
       if(!loc){ toast('Bitte Standort angeben.'); return; }
-      const ok = await takeKeyDB(id, me, loc, reason);
+      const ok = await takeKeyDB(id, holder, loc, reason);
       if(!ok) return;
-      toast(`Schlüssel ${id} auf ${me} eingetragen.`);
+      toast(`Schlüssel ${id} auf ${holder} eingetragen.`);
       loadScanResult(id);
       refreshLocationSuggestions();
     });
