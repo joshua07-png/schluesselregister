@@ -789,16 +789,65 @@ async function refreshAdminFlag(){
   isAdmin = !error && !!data;
 }
 
+function isPasswordRecoveryLink(){
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  return hash.includes('type=recovery') || search.includes('type=recovery');
+}
+
 async function initAuth(){
+  const cameFromRecoveryLink = isPasswordRecoveryLink();
+
   const { data: { session } } = await db.auth.getSession();
   currentUser = session ? session.user : null;
   await refreshAdminFlag();
   renderAdminArea();
-  db.auth.onAuthStateChange(async (_event, session)=>{
+
+  let recoveryModalShown = false;
+  db.auth.onAuthStateChange(async (event, session)=>{
     currentUser = session ? session.user : null;
     await refreshAdminFlag();
     renderAdminArea();
     renderManage();
+    // Supabase feuert je nach Situation entweder 'PASSWORD_RECOVERY' oder (bekannter
+    // Sonderfall) direkt 'SIGNED_IN' -- daher zusaetzlich ueber die URL absichern.
+    if((event === 'PASSWORD_RECOVERY' || cameFromRecoveryLink) && session && !recoveryModalShown){
+      recoveryModalShown = true;
+      showSetPasswordModal();
+    }
+  });
+
+  // Falls der Auth-State-Change-Event bereits vor dem Registrieren des Listeners
+  // gefeuert ist (Timing), hier nochmal direkt pruefen.
+  if(cameFromRecoveryLink && currentUser && !recoveryModalShown){
+    recoveryModalShown = true;
+    showSetPasswordModal();
+  }
+}
+
+function showSetPasswordModal(){
+  const modal = document.getElementById('modal-body');
+  modal.innerHTML = `
+    <h3 class="display" style="margin-top:0;">Willkommen! Passwort festlegen</h3>
+    <p style="font-size:12.5px;color:var(--slate);margin-top:-6px;">Bitte lege ein eigenes Passwort für deinen Zugang fest.</p>
+    <div class="field"><label for="new-pass-1">Neues Passwort (mind. 6 Zeichen)</label><input id="new-pass-1" type="password" placeholder="••••••••"></div>
+    <div class="field"><label for="new-pass-2">Passwort wiederholen</label><input id="new-pass-2" type="password" placeholder="••••••••"></div>
+    <button class="btn btn-brass" id="btn-set-password">Passwort speichern</button>
+    <div id="set-pass-error" style="color:#b1492c;font-size:12.5px;margin-top:10px;"></div>
+  `;
+  document.getElementById('overlay').classList.add('active');
+  document.getElementById('btn-set-password').addEventListener('click', async ()=>{
+    const p1 = document.getElementById('new-pass-1').value;
+    const p2 = document.getElementById('new-pass-2').value;
+    const errBox = document.getElementById('set-pass-error');
+    errBox.textContent = '';
+    if(p1.length < 6){ errBox.textContent = 'Passwort muss mindestens 6 Zeichen haben.'; return; }
+    if(p1 !== p2){ errBox.textContent = 'Passwörter stimmen nicht überein.'; return; }
+    const { error } = await db.auth.updateUser({ password: p1 });
+    if(error){ errBox.textContent = 'Fehler: ' + error.message; return; }
+    toast('Passwort gespeichert. Du bist jetzt eingeloggt.');
+    closeModal();
+    history.replaceState(null, '', window.location.pathname);
   });
 }
 
@@ -863,8 +912,8 @@ function renderEmployeeSection(){
     <div class="section-head" style="margin-top:34px;">
       <div>
         <span class="eyebrow">Verwaltung | Jürgen Rossegger</span>
-        <h2>Mitarbeiter anlegen</h2>
-        <p>Nur für Admins sichtbar. Neue Person bekommt eine Bestätigungs-Mail von Supabase und kann sich danach mit dem hier gesetzten Passwort einloggen.</p>
+        <h2>Mitarbeiter einladen</h2>
+        <p>Nur für Admins sichtbar. Die Person bekommt eine E-Mail mit einem Link, um selbst ein Passwort festzulegen.</p>
       </div>
     </div>
     <div class="card">
@@ -878,19 +927,11 @@ function renderEmployeeSection(){
           <input id="emp-email" type="email" placeholder="name@rossegger-gmbh.de">
         </div>
       </div>
-      <div class="row2">
-        <div class="field">
-          <label for="emp-pass">Passwort (mindestens 6 Zeichen)</label>
-          <input id="emp-pass" type="text" placeholder="Wird der Person mitgeteilt">
-        </div>
-        <div class="field" style="display:flex;align-items:flex-end;padding-bottom:8px;">
-          <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;cursor:pointer;">
-            <input id="emp-admin" type="checkbox" style="width:16px;height:16px;">
-            Admin-Rechte geben (darf auch löschen/bearbeiten)
-          </label>
-        </div>
-      </div>
-      <button class="btn btn-brass" id="btn-create-employee">Mitarbeiter anlegen</button>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;cursor:pointer;margin-bottom:14px;">
+        <input id="emp-admin" type="checkbox" style="width:16px;height:16px;">
+        Admin-Rechte geben (darf auch löschen/bearbeiten)
+      </label>
+      <button class="btn btn-brass" id="btn-create-employee">Einladung senden</button>
       <div id="emp-msg" style="font-size:12.5px;margin-top:10px;"></div>
     </div>
   `;
@@ -900,16 +941,14 @@ function renderEmployeeSection(){
 async function createEmployeeAccount(){
   const name = document.getElementById('emp-name').value.trim();
   const email = document.getElementById('emp-email').value.trim();
-  const pass = document.getElementById('emp-pass').value;
   const asAdmin = document.getElementById('emp-admin').checked;
   const msg = document.getElementById('emp-msg');
   msg.style.color = 'var(--slate)';
   msg.textContent = '';
 
-  if(!name || !email || !pass){ msg.style.color='#b1492c'; msg.textContent = 'Bitte Name, E-Mail und Passwort ausfüllen.'; return; }
-  if(pass.length < 6){ msg.style.color='#b1492c'; msg.textContent = 'Passwort muss mindestens 6 Zeichen haben.'; return; }
+  if(!name || !email){ msg.style.color='#b1492c'; msg.textContent = 'Bitte Name und E-Mail ausfüllen.'; return; }
 
-  msg.textContent = 'Wird angelegt…';
+  msg.textContent = 'Einladung wird verschickt…';
 
   // Eigener, isolierter Client nur fuer die Registrierung -- verwendet keine
   // eigene Session, damit der eingeloggte Admin dabei nicht abgemeldet wird.
@@ -917,27 +956,34 @@ async function createEmployeeAccount(){
     auth: { persistSession: false, autoRefreshToken: false }
   });
 
-  const { data, error } = await signupClient.auth.signUp({
-    email, password: pass,
+  // Zufaelliges, nie angezeigtes Passwort -- die Person legt ihr eigenes ueber
+  // den Link in der Einladungs-Mail fest (siehe resetPasswordForEmail unten).
+  const randomPass = crypto.randomUUID() + crypto.randomUUID();
+
+  const { error: signUpErr } = await signupClient.auth.signUp({
+    email, password: randomPass,
     options: { data: { full_name: name } }
   });
+  if(signUpErr){ msg.style.color='#b1492c'; msg.textContent = 'Fehler: ' + signUpErr.message; return; }
 
-  if(error){ msg.style.color='#b1492c'; msg.textContent = 'Fehler: ' + error.message; return; }
+  const { error: resetErr } = await signupClient.auth.resetPasswordForEmail(email, {
+    redirectTo: APP_URL
+  });
+  if(resetErr){ msg.style.color='#b1492c'; msg.textContent = 'Account erstellt, aber Einladungs-Mail fehlgeschlagen: ' + resetErr.message; return; }
 
   if(asAdmin){
     const { error: adminErr } = await db.from('admins').insert({ email });
     if(adminErr){
       msg.style.color='#b1492c';
-      msg.textContent = `Account erstellt, aber Admin-Rechte konnten nicht gesetzt werden: ${adminErr.message}`;
+      msg.textContent = `Einladung verschickt, aber Admin-Rechte konnten nicht gesetzt werden: ${adminErr.message}`;
       return;
     }
   }
 
   msg.style.color = 'var(--accent-2)';
-  msg.textContent = `${name} wurde angelegt${asAdmin ? ' (als Admin)' : ''}. Die Person erhält eine Bestätigungs-Mail von Supabase und kann sich danach mit dem gesetzten Passwort einloggen.`;
+  msg.textContent = `Einladung an ${name} verschickt${asAdmin ? ' (als Admin)' : ''}. Die Person erhält eine E-Mail, um ihr eigenes Passwort festzulegen.`;
   document.getElementById('emp-name').value='';
   document.getElementById('emp-email').value='';
-  document.getElementById('emp-pass').value='';
   document.getElementById('emp-admin').checked=false;
   toast(`Mitarbeiter-Account für ${name} angelegt.`);
 }
