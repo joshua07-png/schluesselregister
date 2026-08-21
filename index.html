@@ -737,7 +737,7 @@ function renderDashboardList(){
       <div class="tag-label">${escapeHtml(k.label)}</div>
       <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Im Schlüsselkasten'}</span>
       <div class="tag-meta">
-        ${isOut ? `<b>${escapeHtml(k.holder)}</b>${k.responsible?' · Verantw.: '+escapeHtml(k.responsible):''} · seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason ? ' · '+escapeHtml(k.reason):''}`
+        ${isOut ? `<b>${escapeHtml(k.holder)}</b>${(k.responsible && k.responsible!==k.holder)?' · Verantw.: '+escapeHtml(k.responsible):''} · seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason ? ' · '+escapeHtml(k.reason):''}`
                 : `Standard: ${escapeHtml(k.location||'—')}`}
       </div>
     `;
@@ -763,7 +763,7 @@ async function openDetail(id){
       </div>
       <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Verfügbar'}</span>
     </div>
-    ${isOut ? `<div class="tag-meta"><b>${escapeHtml(k.holder)}</b> hat den Schlüssel seit ${fmtDate(k.since)}${k.responsible?'<br>Verantwortlich: '+escapeHtml(k.responsible):''}<br>Standort: ${escapeHtml(k.cur_location)}${k.reason?'<br>Grund: '+escapeHtml(k.reason):''}</div>`
+    ${isOut ? `<div class="tag-meta"><b>${escapeHtml(k.holder)}</b> hat den Schlüssel seit ${fmtDate(k.since)}${(k.responsible && k.responsible!==k.holder)?'<br>Verantwortlich: '+escapeHtml(k.responsible):''}<br>Standort: ${escapeHtml(k.cur_location)}${k.reason?'<br>Grund: '+escapeHtml(k.reason):''}</div>`
              : `<div class="tag-meta">Standardstandort: ${escapeHtml(k.location||'—')}</div>`}
     <div style="margin-top:16px;display:flex;gap:8px;">
       <button class="btn btn-brass" onclick="goScanFor('${k.id}')">${isOut?'Zurückgeben / bearbeiten':'Entnehmen'}</button>
@@ -775,7 +775,7 @@ async function openDetail(id){
           <div class="history-item">
             <div class="when mono">${fmtDate(h.timestamp)}</div>
             <div class="what">
-              <b>${h.action==='take'?'Entnommen von':'Zurückgegeben von'} ${escapeHtml(h.holder)}</b>${h.responsible?` <span style="font-weight:400;color:var(--slate);">(verantw.: ${escapeHtml(h.responsible)})</span>`:''}
+              <b>${h.action==='take'?'Entnommen von':'Zurückgegeben von'} ${escapeHtml(h.holder)}</b>${(h.responsible && h.responsible!==h.holder)?` <span style="font-weight:400;color:var(--slate);">(verantw.: ${escapeHtml(h.responsible)})</span>`:''}
               <div class="sub">${escapeHtml(h.location)}${h.reason?' · '+escapeHtml(h.reason):''}</div>
             </div>
           </div>
@@ -1333,7 +1333,7 @@ async function loadScanResult(id){
         <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Verfügbar'}</span>
       </div>
       ${isOut ? `
-        <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(k.holder)}</b>${k.responsible?' · Verantwortlich: '+escapeHtml(k.responsible):''}, seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason?' · '+escapeHtml(k.reason):''}</div>
+        <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(k.holder)}</b>${(k.responsible && k.responsible!==k.holder)?' · Verantwortlich: '+escapeHtml(k.responsible):''}, seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason?' · '+escapeHtml(k.reason):''}</div>
         <p style="font-size:12px;color:var(--slate);margin:0 0 4px;">Zurückgegeben von (dein Account)</p>
         <p style="font-weight:700;margin:0 0 14px;">${escapeHtml(me)}</p>
         <div class="field"><label for="return-loc">Aktueller Standort</label><input id="return-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. Schlüsselkasten Büro, Fach 3"></div>
@@ -1342,7 +1342,7 @@ async function loadScanResult(id){
       ` : `
         <p style="font-size:12px;color:var(--slate);margin:0 0 4px;">Entnommen von (dein Account)</p>
         <p style="font-weight:700;margin:0 0 14px;">${escapeHtml(me)}</p>
-        <div class="field"><label for="take-responsible">Verantwortlich, falls abweichend (optional)</label><input id="take-responsible" type="text" placeholder="z. B. Handwerker Müller"></div>
+        <div class="field"><label for="take-responsible">Verantwortlich</label><input id="take-responsible" type="text" value="${escapeHtml(me)}" placeholder="Name"></div>
         <div class="field"><label for="take-loc">Aktueller Standort</label><input id="take-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. bei mir, Handwerkerfahrzeug"></div>
         <div class="field"><label for="take-reason">Grund der Entnahme</label><input id="take-reason" type="text" placeholder="z. B. Reparatur Heizung Wohnung 4"></div>
         <button class="btn btn-brass" id="btn-take">Schlüssel entnehmen</button>
@@ -1368,7 +1368,7 @@ async function loadScanResult(id){
       if(!loc){ toast('Bitte Standort angeben.'); return; }
       const ok = await takeKeyDB(id, me, loc, reason, responsible || null);
       if(!ok) return;
-      toast(`Schlüssel ${id} auf ${me}${responsible ? ' (verantwortlich: '+responsible+')' : ''} eingetragen.`);
+      toast(`Schlüssel ${id} auf ${me}${(responsible && responsible !== me) ? ' (verantwortlich: '+responsible+')' : ''} eingetragen.`);
       loadScanResult(id);
       refreshLocationSuggestions();
     });
