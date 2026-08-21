@@ -296,6 +296,28 @@
     padding:10px 14px;border-radius:9px;margin-bottom:18px;border-left:3px solid var(--accent);
   }
 
+  .auth-gate{
+    position:fixed; inset:0; z-index:500;
+    background:linear-gradient(135deg,#000000 0%, #0c0c0c 55%, #142219 100%);
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .auth-gate.hidden{ display:none; }
+  .auth-gate-card{
+    background:#141414; border:1px solid rgba(255,255,255,.12); border-radius:16px;
+    padding:34px 28px; max-width:360px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .auth-gate-logo{ height:24px; margin-bottom:22px; display:block; }
+  .auth-gate-card h2{
+    font-family:'Maven Pro',sans-serif; font-weight:800; text-transform:uppercase;
+    color:#fff; font-size:20px; margin:0 0 6px; letter-spacing:.3px;
+  }
+  .auth-gate-card p{ color:#a8a8a8; font-size:13px; margin:0 0 22px; }
+  .auth-gate-card .field label{ color:#d8d8d8; }
+  .auth-gate-card .field input{
+    background:#1c1c1c; border:1.5px solid #333; color:#fff;
+  }
+  .auth-gate-card .field input:focus{ border-color:var(--accent); }
+
   @media print{
     @page{ size:auto; margin:8mm; }
     html, body{ height:auto !important; margin:0 !important; padding:0 !important; overflow:visible !important; }
@@ -321,6 +343,18 @@
 <body>
 <div id="printQrGenerator" style="position:absolute;left:-9999px;top:-9999px;"></div>
 <datalist id="location-suggestions"></datalist>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-gate-card">
+    <img id="gate-logo" class="auth-gate-logo" alt="Jürgen Rossegger">
+    <h2>Schlüsselregister</h2>
+    <p>Bitte anmelden, um fortzufahren.</p>
+    <div class="field"><label for="gate-email">E-Mail</label><input id="gate-email" type="email" placeholder="name@rossegger-gmbh.de"></div>
+    <div class="field"><label for="gate-pass">Passwort</label><input id="gate-pass" type="password" placeholder="••••••••"></div>
+    <button class="btn btn-brass" id="gate-login-btn" style="width:100%;">Anmelden</button>
+    <div id="gate-error" style="color:#ff8f6b;font-size:12.5px;margin-top:10px;min-height:1em;"></div>
+  </div>
+</div>
 
 <header class="app">
   <div class="brand-eyebrow">
@@ -483,20 +517,20 @@ async function deleteKeyDB(id){
   if(error){ toast('Fehler beim Entfernen: ' + error.message); return false; }
   return true;
 }
-async function takeKeyDB(id, holder, location, reason){
+async function takeKeyDB(id, holder, location, reason, responsible){
   const now = new Date().toISOString();
   const { error: e1 } = await db.from('keys').update({
-    status:'out', holder, cur_location:location, reason, since:now
+    status:'out', holder, cur_location:location, reason, since:now, responsible
   }).eq('id', id);
   if(e1){ toast('Fehler: ' + e1.message); return false; }
-  const { error: e2 } = await db.from('key_history').insert({ key_id:id, action:'take', holder, location, reason, timestamp:now });
+  const { error: e2 } = await db.from('key_history').insert({ key_id:id, action:'take', holder, location, reason, responsible, timestamp:now });
   if(e2){ toast('Fehler im Protokoll: ' + e2.message); }
   return true;
 }
 async function returnKeyDB(id, holder, location, reason){
   const now = new Date().toISOString();
   const { error: e1 } = await db.from('keys').update({
-    status:'available', holder:null, cur_location:null, reason:null, since:null
+    status:'available', holder:null, cur_location:null, reason:null, since:null, responsible:null
   }).eq('id', id);
   if(e1){ toast('Fehler: ' + e1.message); return false; }
   const { error: e2 } = await db.from('key_history').insert({ key_id:id, action:'return', holder, location, reason, timestamp:now });
@@ -615,7 +649,7 @@ function filterKeys(list, term, locationFilter){
   const q = (term||'').trim().toLowerCase();
   if(q){
     out = out.filter(k=>{
-      const hay = [k.id, k.label, k.location, k.holder, k.cur_location, k.reason]
+      const hay = [k.id, k.label, k.location, k.holder, k.cur_location, k.reason, k.responsible]
         .filter(Boolean).join(' ').toLowerCase();
       return hay.includes(q);
     });
@@ -703,7 +737,7 @@ function renderDashboardList(){
       <div class="tag-label">${escapeHtml(k.label)}</div>
       <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Im Schlüsselkasten'}</span>
       <div class="tag-meta">
-        ${isOut ? `<b>${escapeHtml(k.holder)}</b> · seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason ? ' · '+escapeHtml(k.reason):''}`
+        ${isOut ? `<b>${escapeHtml(k.holder)}</b>${k.responsible?' · Verantw.: '+escapeHtml(k.responsible):''} · seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason ? ' · '+escapeHtml(k.reason):''}`
                 : `Standard: ${escapeHtml(k.location||'—')}`}
       </div>
     `;
@@ -729,7 +763,7 @@ async function openDetail(id){
       </div>
       <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Verfügbar'}</span>
     </div>
-    ${isOut ? `<div class="tag-meta"><b>${escapeHtml(k.holder)}</b> hat den Schlüssel seit ${fmtDate(k.since)}<br>Standort: ${escapeHtml(k.cur_location)}${k.reason?'<br>Grund: '+escapeHtml(k.reason):''}</div>`
+    ${isOut ? `<div class="tag-meta"><b>${escapeHtml(k.holder)}</b> hat den Schlüssel seit ${fmtDate(k.since)}${k.responsible?'<br>Verantwortlich: '+escapeHtml(k.responsible):''}<br>Standort: ${escapeHtml(k.cur_location)}${k.reason?'<br>Grund: '+escapeHtml(k.reason):''}</div>`
              : `<div class="tag-meta">Standardstandort: ${escapeHtml(k.location||'—')}</div>`}
     <div style="margin-top:16px;display:flex;gap:8px;">
       <button class="btn btn-brass" onclick="goScanFor('${k.id}')">${isOut?'Zurückgeben / bearbeiten':'Entnehmen'}</button>
@@ -741,7 +775,7 @@ async function openDetail(id){
           <div class="history-item">
             <div class="when mono">${fmtDate(h.timestamp)}</div>
             <div class="what">
-              <b>${h.action==='take'?'Entnommen von':'Zurückgegeben von'} ${escapeHtml(h.holder)}</b>
+              <b>${h.action==='take'?'Entnommen von':'Zurückgegeben von'} ${escapeHtml(h.holder)}</b>${h.responsible?` <span style="font-weight:400;color:var(--slate);">(verantw.: ${escapeHtml(h.responsible)})</span>`:''}
               <div class="sub">${escapeHtml(h.location)}${h.reason?' · '+escapeHtml(h.reason):''}</div>
             </div>
           </div>
@@ -795,20 +829,69 @@ function isPasswordRecoveryLink(){
   return hash.includes('type=recovery') || search.includes('type=recovery');
 }
 
+/* ---------------- login gate ---------------- */
+let pendingKeyParam = null;
+let initialRouteDone = false;
+
+function showGate(){
+  document.getElementById('auth-gate').classList.remove('hidden');
+  document.querySelector('header.app').style.display = 'none';
+  document.querySelector('main').style.display = 'none';
+}
+function hideGate(){
+  document.getElementById('auth-gate').classList.add('hidden');
+  document.querySelector('header.app').style.display = '';
+  document.querySelector('main').style.display = '';
+  runInitialRouteOnce();
+}
+function runInitialRouteOnce(){
+  if(initialRouteDone) return;
+  initialRouteDone = true;
+  if(pendingKeyParam){
+    const kp = pendingKeyParam;
+    pendingKeyParam = null;
+    switchView('scan');
+    document.getElementById('in-scan-id').value = kp.toUpperCase();
+    loadScanResult(kp.toUpperCase());
+  } else {
+    renderDashboard();
+    refreshLocationSuggestions();
+  }
+}
+
+document.getElementById('gate-login-btn').addEventListener('click', gateLogin);
+document.getElementById('gate-pass').addEventListener('keydown', e=>{ if(e.key==='Enter') gateLogin(); });
+document.getElementById('gate-email').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('gate-pass').focus(); });
+async function gateLogin(){
+  const email = document.getElementById('gate-email').value.trim();
+  const pass = document.getElementById('gate-pass').value;
+  const err = document.getElementById('gate-error');
+  err.textContent = '';
+  if(!email || !pass){ err.textContent = 'Bitte E-Mail und Passwort eingeben.'; return; }
+  const { error } = await db.auth.signInWithPassword({ email, password: pass });
+  if(error){ err.textContent = 'Anmeldung fehlgeschlagen: ' + error.message; return; }
+  // onAuthStateChange uebernimmt hideGate() + Weiterleitung
+}
+
 async function initAuth(){
+  // Logo im Gate wiederverwenden statt Base64 doppelt einzubetten
+  const headerLogo = document.querySelector('.brand-eyebrow .logo-mark');
+  if(headerLogo) document.getElementById('gate-logo').src = headerLogo.src;
+
   const cameFromRecoveryLink = isPasswordRecoveryLink();
 
   const { data: { session } } = await db.auth.getSession();
   currentUser = session ? session.user : null;
   await refreshAdminFlag();
   renderAdminArea();
+  if(currentUser) hideGate(); else showGate();
 
   let recoveryModalShown = false;
   db.auth.onAuthStateChange(async (event, session)=>{
     currentUser = session ? session.user : null;
     await refreshAdminFlag();
     renderAdminArea();
-    renderManage();
+    if(currentUser){ hideGate(); renderManage(); } else { showGate(); }
     // Supabase feuert je nach Situation entweder 'PASSWORD_RECOVERY' oder (bekannter
     // Sonderfall) direkt 'SIGNED_IN' -- daher zusaetzlich ueber die URL absichern.
     if((event === 'PASSWORD_RECOVERY' || cameFromRecoveryLink) && session && !recoveryModalShown){
@@ -1250,15 +1333,16 @@ async function loadScanResult(id){
         <span class="status-pill ${isOut?'out':'ok'}"><span class="dot"></span>${isOut?'Entnommen':'Verfügbar'}</span>
       </div>
       ${isOut ? `
-        <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(k.holder)}</b>, seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason?' · '+escapeHtml(k.reason):''}</div>
-        <div class="field"><label for="return-holder">Zurückgegeben von</label><input id="return-holder" type="text" value="${escapeHtml(me)}" placeholder="Name"></div>
-        <p style="font-size:11px;color:var(--slate);margin:-8px 0 12px;">Voreingestellt mit deinem Namen — bei Bedarf ändern, falls jemand anderes tatsächlich zurückgibt.</p>
+        <div class="tag-meta" style="margin:10px 0 16px;">Aktuell bei <b>${escapeHtml(k.holder)}</b>${k.responsible?' · Verantwortlich: '+escapeHtml(k.responsible):''}, seit ${fmtDate(k.since)}<br>${escapeHtml(k.cur_location)}${k.reason?' · '+escapeHtml(k.reason):''}</div>
+        <p style="font-size:12px;color:var(--slate);margin:0 0 4px;">Zurückgegeben von (dein Account)</p>
+        <p style="font-weight:700;margin:0 0 14px;">${escapeHtml(me)}</p>
         <div class="field"><label for="return-loc">Aktueller Standort</label><input id="return-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. Schlüsselkasten Büro, Fach 3"></div>
         <div class="field"><label for="return-reason">Grund der Rückgabe (optional)</label><input id="return-reason" type="text" placeholder="z. B. Reparatur abgeschlossen"></div>
         <button class="btn btn-brass" id="btn-return">Schlüssel zurückgeben</button>
       ` : `
-        <div class="field"><label for="take-holder">Entnommen von</label><input id="take-holder" type="text" value="${escapeHtml(me)}" placeholder="Name"></div>
-        <p style="font-size:11px;color:var(--slate);margin:-8px 0 12px;">Voreingestellt mit deinem Namen — bei Bedarf ändern, falls jemand anderes tatsächlich entnimmt.</p>
+        <p style="font-size:12px;color:var(--slate);margin:0 0 4px;">Entnommen von (dein Account)</p>
+        <p style="font-weight:700;margin:0 0 14px;">${escapeHtml(me)}</p>
+        <div class="field"><label for="take-responsible">Verantwortlich, falls abweichend (optional)</label><input id="take-responsible" type="text" placeholder="z. B. Handwerker Müller"></div>
         <div class="field"><label for="take-loc">Aktueller Standort</label><input id="take-loc" type="text" list="location-suggestions" value="${escapeHtml(k.location||'')}" placeholder="z. B. bei mir, Handwerkerfahrzeug"></div>
         <div class="field"><label for="take-reason">Grund der Entnahme</label><input id="take-reason" type="text" placeholder="z. B. Reparatur Heizung Wohnung 4"></div>
         <button class="btn btn-brass" id="btn-take">Schlüssel entnehmen</button>
@@ -1267,12 +1351,10 @@ async function loadScanResult(id){
   `;
   if(isOut){
     document.getElementById('btn-return').addEventListener('click', async ()=>{
-      const holder = document.getElementById('return-holder').value.trim();
       const loc = document.getElementById('return-loc').value.trim();
       const reason = document.getElementById('return-reason').value.trim();
-      if(!holder){ toast('Bitte Namen angeben.'); return; }
       if(!loc){ toast('Bitte Standort angeben.'); return; }
-      const ok = await returnKeyDB(id, holder, loc, reason);
+      const ok = await returnKeyDB(id, me, loc, reason);
       if(!ok) return;
       toast(`Schlüssel ${id} zurückgegeben.`);
       loadScanResult(id);
@@ -1280,14 +1362,13 @@ async function loadScanResult(id){
     });
   } else {
     document.getElementById('btn-take').addEventListener('click', async ()=>{
-      const holder = document.getElementById('take-holder').value.trim();
+      const responsible = document.getElementById('take-responsible').value.trim();
       const loc = document.getElementById('take-loc').value.trim();
       const reason = document.getElementById('take-reason').value.trim();
-      if(!holder){ toast('Bitte Namen angeben.'); return; }
       if(!loc){ toast('Bitte Standort angeben.'); return; }
-      const ok = await takeKeyDB(id, holder, loc, reason);
+      const ok = await takeKeyDB(id, me, loc, reason, responsible || null);
       if(!ok) return;
-      toast(`Schlüssel ${id} auf ${holder} eingetragen.`);
+      toast(`Schlüssel ${id} auf ${me}${responsible ? ' (verantwortlich: '+responsible+')' : ''} eingetragen.`);
       loadScanResult(id);
       refreshLocationSuggestions();
     });
@@ -1303,19 +1384,11 @@ document.getElementById('manage-sort').addEventListener('change', renderManageLi
 document.getElementById('manage-location-filter').addEventListener('change', renderManageList);
 document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
 
-/* ---------------- init: check for ?key= param ---------------- */
+/* ---------------- init: capture ?key= param, then wait for gate ---------------- */
 (function init(){
-  initAuth();
   const params = new URLSearchParams(window.location.search);
-  const keyParam = params.get('key');
-  if(keyParam){
-    switchView('scan');
-    document.getElementById('in-scan-id').value = keyParam.toUpperCase();
-    loadScanResult(keyParam.toUpperCase());
-  } else {
-    renderDashboard();
-    refreshLocationSuggestions();
-  }
+  pendingKeyParam = params.get('key');
+  initAuth();
 })();
 </script>
 </body>
